@@ -1,4 +1,5 @@
 import pandas as pd
+import pathlib
 
 def roman_to_int(roman):
     roman_values = {'I': 1, 'V': 5, 'X': 10, 'L': 50}
@@ -14,7 +15,9 @@ def roman_to_int(roman):
             result += roman_values[roman[i]]
     return result
 
-def enrich_measure_data(measures_df_path = 'data/MeasureCorpus.csv', meeting_year_dict_path = 'data/meeting_year_dictionary.csv', output_path = 'data/MeasureCorpusEnriched.csv'):
+def enrich_measure_data(measures_df_path = 'data/MeasureCorpus.csv', output_path = 'data/MeasureCorpusEnriched.csv'):
+    meeting_year_dict_path = pathlib.Path(__file__).parent.parent / 'data/meeting_year_dictionary.csv'
+
     df = pd.read_csv(measures_df_path)
 
     df['Adoption_Year'] = pd.to_datetime(
@@ -41,12 +44,12 @@ def enrich_measure_data(measures_df_path = 'data/MeasureCorpus.csv', meeting_yea
 
     df.to_csv(output_path, index=False)
 
-def enrich_if_not_exists(measures_df_path = 'data/MeasureCorpus.csv', meeting_year_dict_path = 'data/meeting_year_dictionary.csv', output_path = 'data/MeasureCorpusEnriched.csv'):
+def enrich_if_not_exists(measures_df_path = 'data/MeasureCorpus.csv', output_path = 'data/MeasureCorpusEnriched.csv'):
     try:
         pd.read_csv(output_path)
         print(f"{output_path} already exists. Skipping enrichment.")
     except FileNotFoundError:
-        enrich_measure_data(measures_df_path, meeting_year_dict_path, output_path)
+        enrich_measure_data(measures_df_path, output_path)
 
 if __name__ == "__main__":
     enrich_if_not_exists()

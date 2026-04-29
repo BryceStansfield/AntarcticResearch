@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import time
 
-def scrape_data(output_file = 'data/MeasureCorpus.csv'):
+def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
     data = pd.DataFrame(columns=['Document_Number', 'Subject', 'Status', 'Category', 'Topics', 'Title', 'Content'])
 
     base_url = 'https://www.ats.aq/devAS/Meetings/Measure/'
@@ -66,17 +66,18 @@ def scrape_data(output_file = 'data/MeasureCorpus.csv'):
 
     data.to_csv(output_file, index=False)
 
-    with open('data/scraping_failure_list.txt', 'w') as f:
-        for url in failure_list:
-            f.write(f"{url}\n")
+    if failure_list_file != '':
+        with open('data/scraping_failure_list.txt', 'w') as f:
+            for url in failure_list:
+                f.write(f"{url}\n")
 
-def scrape_data_if_not_exists(output_file = 'data/MeasureCorpus.csv'):
+def scrape_data_if_not_exists(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
     try:
         data = pd.read_csv(output_file)
         print(f"Data already exists in {output_file}. Skipping scraping.")
     except FileNotFoundError:
         print(f"{output_file} not found. Starting scraping process.")
-        scrape_data(output_file)
+        scrape_data(output_file, failure_list_file)
 
 if __name__ == "__main__":
     scrape_data_if_not_exists()

@@ -17,7 +17,7 @@ The final processed CSV file is:
 
 To run the full workflow in the current working directory, just run main.py.
 
-To call from another python file, call Pipeline.run_measure_scraping_pipeline().
+To call from another python file, call Pipeline.scrape_and_enrich_measures().
 
 ---
 
