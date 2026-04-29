@@ -3,13 +3,21 @@
 ## Overview
 Adapted from: https://github.com/Parsayarya/ATCM_MeasureDataBase_New
 
-This repository contains the full workflow used to build the Antarctic Treaty System (ATS) Measures database, along with the final cleaned dataset.
-
-The project uses web-scraping, parsing, cleaning, and merging of multiple intermediate files to produce a single, consistent table of Measures (and related instruments) with their adoption details, meeting metadata, and text content.
+This codebase contains code which:
+a) Scrapes ATS measures (and related instruments) from the official webpage
+b) Slightly enriches the data with years, based on a list of meeting years for meetings earlier than 1994.
 
 The final processed CSV file is:
 
-- `MeasureCorpus_withMeetingType3.csv` – the main database ready for analysis and sharing.
+- `data/MeasureCorpusEnriched.csv` – the main database ready for analysis and sharing.
+
+---
+
+## How To Run?
+
+To run the full workflow in the current working directory, just run main.py.
+
+To call from another python file, call Pipeline.run_measure_scraping_pipeline().
 
 ---
 
@@ -31,59 +39,25 @@ This script loops over the ATS “Measure” pages and, for each document, extra
 - `Title`
 - `Content` (full text where available)
 
-The output of this step is saved as `MeasureCorpus_Latest_2.csv`. :contentReference[oaicite:0]{index=0}  
+The output of this step is saved as `MeasureCorpus.csv`.
 
 ---
 
-### 2. Cleaning and Merging Sources
+### 2. Enrichment
 
-Next, earlier scraped data in `MeasureCorpus_Latest.csv` is combined with the newer file `MeasureCorpus_Latest_2.csv` using:
+Several variables are extracted from MeasureCorpus.csv.
 
-- `MeasureDBMaker.py` :contentReference[oaicite:1]{index=1}  
+- `Adoption_Year`
+- `ACTM_Number`
+- `ACTM_Year`
+- `Type`
+- `Meeting_Type`
 
-In this step:
-
-- Redundant columns such as older `Year` or duplicated `Content` are dropped.
-- Both datasets are concatenated into a single corpus.
-- An **adoption date** is extracted from the `Status` string (e.g. from `DD/MM/YYYY`) and used to create an `Adoption_Year` column.
-
-This produces `MeasureCorpus_withAdoptionDates_andTypes.csv`.
-
----
-
-### 3. Building the Meeting Year Dictionary
-
-ATCM meeting years are not always consistently stated in the raw titles, so a separate dictionary of meeting numbers and years is built using:
-
-- `DictionaryForAllMeetings.py` :contentReference[oaicite:2]{index=2}  
-
-This script reads an external ATCM dataset, constructs a `Meeting_Number → Year` mapping, and saves it as `meeting_year_dictionary.csv`.  
-This lookup is then used later to fill in missing meeting years.
-
----
-
-### 4. Final Editing and Classification
-
-The final structural and classification work is done in:
-
-- `MeasureDBEdit.py` :contentReference[oaicite:3]{index=3}  
-
-Key operations here include:
-
-- Extracting **ATCM numbers** from Roman numerals in the title (e.g. `ATCM XXXVIII`).
-- Mapping ATCM numbers to years using `meeting_year_dictionary.csv` when the year is missing in the title.
-- Identifying the **document type** (`Resolution`, `Decision`, `Measure`, `Recommendation`) from the start of the title.
-- Assigning a broader **Meeting_Type** based on text clues in the title (e.g. `ATCM`, `SATCM`, `CCAS`, or `Unknown`).
-
-The result of this step is the final dataset:
-
-- `MeasureCorpus_withMeetingType3.csv`
-
----
+The output of this step is saved as `MeasureCorpusEnriched.csv`
 
 ## Final Dataset Columns
 
-The main columns in `MeasureCorpus_withMeetingType3.csv` are:
+The main columns in `MeasureCorpusEnriched.csv` are:
 
 ### Identification and Basic Metadata
 
@@ -138,21 +112,3 @@ The main columns in `MeasureCorpus_withMeetingType3.csv` are:
   Plain-text body of the Measure (or related instrument), when available.
 
 ---
-
-## Reproducing the Workflow
-
-To reproduce the database from scratch:
-
-1. **Scrape the latest Measures**  
-   Run `MeasureScraper.py` to generate or update `MeasureCorpus_Latest_2.csv`.
-
-2. **Merge and extract adoption dates**  
-   Run `MeasureDBMaker.py` to merge `MeasureCorpus_Latest.csv` and `MeasureCorpus_Latest_2.csv`, and to create `MeasureCorpus_withAdoptionDates_andTypes.csv`.
-
-3. **Build the meeting year dictionary**  
-   Run `DictionaryForAllMeetings.py` to produce `meeting_year_dictionary.csv`.
-
-4. **Generate the final database**  
-   Run `MeasureDBEdit.py` to add meeting information, document type, and meeting type, and to output `MeasureCorpus_withMeetingType3.csv`.
-
-This final CSV is the recommended file to cite and use for analysis.
