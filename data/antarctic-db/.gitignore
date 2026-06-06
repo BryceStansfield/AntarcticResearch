@@ -1,0 +1,13 @@
+# All pipeline outputs — large, binary, regenerable
+processed/*.sqlite3
+processed/*.parquet
+processed/*.log
+processed/dataset-*/
+
+# Manually downloaded UTAS PDFs (too large for git)
+external/utas/*.pdf
+external/utas/**/*.pdf
+
+# Sentinels — local state, not for version control
+processed/.pipeline_complete
+external/utas/.downloads_complete

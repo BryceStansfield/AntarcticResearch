@@ -10,8 +10,8 @@ class FacilityFigures:
         # First we clean peak population. 
         self.facilities["Peak Population"] = self.facilities["Peak Population"].replace(',','', regex=True).fillna(0).astype(int)
 
-        # Here we treat 2 seasonal facilities (as opposed to the original 4) as being equivialent to 1 year-round facility.
-        self.facilities["Seasonal Adjusted Peak Population"] = self.facilities["Peak Population"] * self.facilities["Seasonality"].map({"Year-Round": 1, "Seasonal": 0.5})
+        # Here we treat 4 seasonal facilities as being equivialent to 1 year-round facility.
+        self.facilities["Seasonal Adjusted Peak Population"] = self.facilities["Peak Population"] * self.facilities["Seasonality"].map({"Year-Round": 1, "Seasonal": 0.25})
 
         self.country_sums = defaultdict(int)
 
