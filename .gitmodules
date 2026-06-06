@@ -1,0 +1,3 @@
+[submodule "Submodules/antarctic-database-go"]
+	path = Submodules/antarctic-database-go
+	url = https://github.com/carlohamalainen/antarctic-database-go
