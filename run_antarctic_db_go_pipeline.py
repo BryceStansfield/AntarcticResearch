@@ -161,6 +161,52 @@ def datestamp_hash() -> str:
     return f"{stamp}-{uuid.uuid4()}"
 
 
+def patch_utas_metadata(parquet_file: Path) -> None:
+    """
+    Fill in the empty metadata fields for UTAS records in document-summary.parquet.
+
+    ingestManualDocuments() in the upstream Go code only sets PaperUrl on these
+    records. The remaining fields (meeting year, paper type, parties, etc.) are
+    all present in wps_missing.csv and patched in here after the fact.
+
+    Note: the Go struct tag for PaperType is 'party_type' (upstream typo) — we
+    match that name exactly so the column is consistent with the rest of the file.
+    """
+    import pandas as pd
+
+    lookup: dict[str, dict] = {}
+    with open(WPS_CSV, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            url = row.get("url", "").strip()
+            if not url.startswith("http"):
+                continue
+            lookup[url] = {
+                "meeting_year":   int(row["meeting_year"]) if row["meeting_year"].strip() else 0,
+                "meeting_type":   row["meeting_type"].strip(),
+                "meeting_number": int(row["meeting_number"]) if row["meeting_number"].strip() else 0,
+                "meeting_name":   row["meeting_name"].strip(),
+                "party_type":     row["paper_type"].strip(),
+                "paper_name":     row["paper_name"].strip(),
+                "paper_number":   int(row["paper_number"]) if row["paper_number"].strip() else 0,
+                "paper_revision": int(row["paper_revision"]) if row["paper_revision"].strip() else 0,
+                "agendas":        [a.strip() for a in row["agendas"].split(",") if a.strip()],
+                "parties":        [p.strip() for p in row["parties"].split(",") if p.strip()],
+            }
+
+    df = pd.read_parquet(parquet_file)
+    patched = 0
+    for i, row in df.iterrows():
+        meta = lookup.get(row.get("paper_url", ""))
+        if meta is None:
+            continue
+        for col, val in meta.items():
+            df.at[i, col] = val
+        patched += 1
+
+    df.to_parquet(parquet_file, index=False)
+    print(f"    Patched {patched} UTAS records in {parquet_file.name}.")
+
+
 def build_binaries() -> None:
     print("==> Building Go binaries ...")
     binaries = [
@@ -317,6 +363,9 @@ def main() -> None:
             PROCESSED_DIR / f"prepare-document-pipeline-{tag}.log",
         )
 
+        print("==> Patching UTAS metadata in document-summary.parquet ...")
+        patch_utas_metadata(PROCESSED_DIR / "document-summary.parquet")
+
         # Step 4: run-ocr
         if not args.skip_ocr:
             run_step(
@@ -341,32 +390,41 @@ def main() -> None:
             PROCESSED_DIR / f"fulltext-pipeline-{tag}.log",
         )
 
-        # Step 6: extract-documents
-        dataset_dir = PROCESSED_DIR / f"dataset-{tag}"
-        dataset_dir.mkdir(parents=True, exist_ok=True)
+        # Step 6: extract-documents (skipped when OCR was skipped — the sanity
+        # check inside extract-documents requires all scanned pages to have
+        # ocr-done status, which won't be true yet)
+        if not args.skip_ocr:
+            dataset_dir = PROCESSED_DIR / f"dataset-{tag}"
+            dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        run_step(
-            "extract-documents",
-            [
-                str(PROJECT_ROOT / "extract-documents"),
-                "--http-cache",          str(PROCESSED_DIR / "http-cache.sqlite3"),
-                "--pipeline-db-file",    str(PROCESSED_DIR / "document-pipeline.sqlite3"),
-                "--output-dir",          str(dataset_dir),
-                "--output-parquet-file", str(dataset_dir / "summary.parquet"),
-                "--utas-raw-pdfs",       str(UTAS_DIR),
-                "--wps-csv",             str(WPS_CSV),
-            ],
-            PROCESSED_DIR / f"extract-documents-{tag}.log",
-        )
+            run_step(
+                "extract-documents",
+                [
+                    str(PROJECT_ROOT / "extract-documents"),
+                    "--http-cache",          str(PROCESSED_DIR / "http-cache.sqlite3"),
+                    "--pipeline-db-file",    str(PROCESSED_DIR / "document-pipeline.sqlite3"),
+                    "--output-dir",          str(dataset_dir),
+                    "--output-parquet-file", str(dataset_dir / "summary.parquet"),
+                    "--utas-raw-pdfs",       str(UTAS_DIR),
+                    "--wps-csv",             str(WPS_CSV),
+                ],
+                PROCESSED_DIR / f"extract-documents-{tag}.log",
+            )
 
-        # Write sentinel so subsequent runs are skipped
-        SENTINEL.write_text(
-            f"Completed: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z\n"
-            f"Dataset:   {dataset_dir.relative_to(REPO_ROOT)}\n"
-        )
+            sentinel_text = (
+                f"Completed: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z\n"
+                f"Dataset:   {dataset_dir.relative_to(REPO_ROOT)}\n"
+            )
+            print(f"Dataset:  {dataset_dir.relative_to(REPO_ROOT)}")
+        else:
+            sentinel_text = (
+                f"Completed: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z\n"
+                f"OCR skipped — documents are in {PROCESSED_DIR.relative_to(REPO_ROOT)}/document-pipeline.sqlite3\n"
+            )
+            print(f"Documents: {(PROCESSED_DIR / 'document-pipeline.sqlite3').relative_to(REPO_ROOT)}")
 
+        SENTINEL.write_text(sentinel_text)
         print(f"\nPipeline complete.")
-        print(f"Dataset:  {dataset_dir.relative_to(REPO_ROOT)}")
         print(f"Sentinel: {SENTINEL.relative_to(REPO_ROOT)}")
 
     finally:
