@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup
 import requests
 import pathlib
 import json
+import ocr
 
 def download_pdf_to_dir(dump_directory: pathlib.Path, url: str):
     result = requests.get(url)
@@ -80,7 +81,7 @@ def run_final_report_downloading_pipeline(dump_directory = pathlib.Path("data/fi
         (dump_directory / "download.complete").touch()
 
     if not (dump_directory / "ocr.complete").exists():
-        pass
+        ocr.ocr_full_directory(dump_directory)
 
 if __name__ == "__main__":
     run_final_report_downloading_pipeline()
