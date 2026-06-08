@@ -99,7 +99,13 @@ def debug_token_estimate(to_parse: list[tuple[str, str, int]], prompt: str) -> N
 
 async def _parse_and_persist_one(base_name: str, chunk: str, chunk_num: int, prompt: str, type: str) -> None:
     response = await _openrouter_client.chat.completions.create(
-        model="meta-llama/llama-3.1-8b-instruct",
+        model="deepseek/deepseek-v4-flash",
+        extra_body={
+            "provider": {
+                # Option 1: Strictly restrict to these providers only
+                "only": ["cloudflare"]
+            }
+        },
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": chunk},
@@ -120,9 +126,9 @@ async def parse_and_persist_chunk_info(to_parse: list[tuple[str, str, int]], pro
 class FinalReportInterventionFigures:
     INTERVENTION_PROMPT = """You are an assistant for Antarctic research.
     We are attempting to find out how often various countries are said to have "intervened" in ATCM discussions.
-    We say that a country intervened in a discussion if it is written that they added something to the conversation.
-    For example, "Ukraine stated..." would be an intervention from Ukraine, but not "...when the Ukrainain delegation", "...the Ukranian army...", or "...the Russian invasion of Ukraine..."
-    Please return *ONLY* a list of countries which intervened in a discussion segment as a list with no additional commentary. E.g. ["Australia", "Canada"]"""
+    We say that a country intervened in a discussion if it is explicitly written that their delegation participated directly in a conversation.
+    For example, if it was written that "Ukraine stated X" or "Ukraine mentioned X" e.t.c., that would be an intervention from Ukraine. But if Ukraine was passively mentioned, e.g. "the conference was hosted in Ukraine", or "the invasion of Ukraine" that would not be.
+    Please return *ONLY* a list of countries which intervened in a discussion segment as a list with no additional commentary. If unsure return an empty list. E.g. ["Australia", "Canada"]"""
     INTERVENTION = "intervention"
 
     def __init__(self):        
