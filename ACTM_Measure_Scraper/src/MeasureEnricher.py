@@ -32,7 +32,7 @@ def enrich_measure_data(measures_df_path = 'data/MeasureCorpus.csv', output_path
     df['ATCM_Number'] = df['Title'].str.extract(r'ATCM\s+([IVXL]+)').iloc[:, 0].apply(roman_to_int)
     meeting_dict = pd.read_csv(meeting_year_dict_path)
     meeting_dict_map = dict(zip(meeting_dict['Meeting_Number'], meeting_dict['Year']))
-    meeting_to_year = lambda meeting_number: meeting_dict_map.get(meeting_number) if meeting_number in meeting_dict_map else meeting_number - 18 + 1994
+    meeting_to_year = lambda meeting_number: meeting_dict_map.get(meeting_number) if meeting_number in meeting_dict_map else 2022 + (meeting_number - 44)
 
     df['ATCM_Year'] = df.apply(lambda x: meeting_to_year(x['ATCM_Number']) if pd.isna(x['ATCM_Year']) and x['ATCM_Number'] in meeting_dict_map else x['ATCM_Year'], axis=1)
     df['Type'] = df['Title'].str.extract(r'^(Resolution|Decision|Measure|Recommendation)').iloc[:, 0]

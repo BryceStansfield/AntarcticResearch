@@ -1,13 +1,13 @@
 import pandas as pd
 
-from infrastructure_figures import FacilityFigures
+from infrastructure_figures import FacilityFigures, VesselCrewFigures
+from final_report_metrics import FinalReportMentionFigures, FinalReportInterventionFigures
 
 def aggregate_all_figures():
-    from infrastructure_figures import FacilityFigures, VesselCrewFigures
-
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
-    figures = [FacilityFigures(), VesselCrewFigures()]
+    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures()]
 
+    # TODO: Next session, investigate gap between these figures and Parsas for Influence.
     results = pd.DataFrame(columns=["Country"] + [figure.figure_title() for figure in figures])
     for country in countries:
         row = {"Country": country}

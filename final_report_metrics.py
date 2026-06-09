@@ -1,34 +1,39 @@
-import scrape_final_reports
-import openai
 import sqlite3
-import pickle
 import pathlib
 import random
-import time
 import more_itertools
 import asyncio
-import secret_management as project_secrets
+import time
+import nltk
+import scrape_final_reports
+import json
+from thefuzz import fuzz
+from nltk.tokenize import sent_tokenize
+import pathlib
+import conversions
+import country_meta_info
 
 FINAL_REPORT_PATH = pathlib.Path("data/final_reports")
-METRICS_DB_PATH = pathlib.Path("data/final_reports/final_report_metrics.sqlite3")
-MENTION = "mention"
-
-_openrouter_client = openai.AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=project_secrets.get("OPENROUTER_API_KEY"),
-)
-
+METRICS_DB_PATH = pathlib.Path("data/final_reports/final_report_metrics_fuzzy.sqlite3")
 
 def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(METRICS_DB_PATH)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS mentions (
-            type      TEXT    NOT NULL,
+        CREATE TABLE IF NOT EXISTS chunks (
             document  TEXT    NOT NULL,
             chunk_num INTEGER NOT NULL,
             chunk     TEXT    NOT NULL,
-            mentions  TEXT    NOT NULL,
-            PRIMARY KEY (type, document, chunk_num)
+            year      INTEGER,
+            PRIMARY KEY (document, chunk_num)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mentions_and_interventions (
+            document        TEXT    NOT NULL,
+            chunk_num       INTEGER NOT NULL,
+            country         TEXT    NOT NULL,
+            is_intervention INTEGER NOT NULL,
+            PRIMARY KEY (document, chunk_num, country)
         )
     """)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -36,41 +41,78 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def db_get(type: str, document: str, chunk_num: int) -> dict | None:
+def get_document(document: str, chunk_num: int) -> dict | None:
     with _get_connection() as conn:
         row = conn.execute(
-            "SELECT chunk, mentions FROM mentions WHERE type=? AND document=? AND chunk_num=?",
-            (type, document, chunk_num),
+            "SELECT chunk FROM chunks WHERE document=? AND chunk_num=?",
+            (document, chunk_num),
         ).fetchone()
-    return {"chunk": row[0], "mentions": row[1]} if row else None
+    return {"chunk": row[0]} if row else None
 
 
-async def db_set(type: str, document: str, chunk_num: int, chunk: str, mentions: str) -> None:
+def set_document(document: str, chunk_num: int, chunk: str, year: int | None = None) -> None:
     for attempt in range(3):
         try:
             with _get_connection() as conn:
                 conn.execute(
-                    "INSERT OR REPLACE INTO mentions (type, document, chunk_num, chunk, mentions) VALUES (?, ?, ?, ?, ?)",
-                    (type, document, chunk_num, chunk, mentions),
+                    "INSERT OR REPLACE INTO chunks (document, chunk_num, chunk, year) VALUES (?, ?, ?, ?)",
+                    (document, chunk_num, chunk, year),
                 )
             return
         except sqlite3.OperationalError:
             if attempt == 2:
                 raise
-            await asyncio.sleep(random.uniform(0.1, 0.5))
+            time.sleep(random.uniform(0.1, 0.5))
 
 
-def db_check_key_exists(type: str, document: str, chunk_num: int) -> bool:
+def set_mentions_and_interventions(
+    document: str, chunk_num: int, countries: list[str], is_intervention: bool
+) -> None:
+    for attempt in range(3):
+        try:
+            with _get_connection() as conn:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO mentions_and_interventions (document, chunk_num, country, is_intervention) VALUES (?, ?, ?, ?)",
+                    [(document, chunk_num, country, int(is_intervention)) for country in countries],
+                )
+            return
+        except sqlite3.OperationalError:
+            if attempt == 2:
+                raise
+            time.sleep(random.uniform(0.1, 0.5))
+
+def check_document_exists(document: str, chunk_num: int) -> bool:
     with _get_connection() as conn:
         row = conn.execute(
-            "SELECT 1 FROM mentions WHERE type=? AND document=? AND chunk_num=?",
-            (type, document, chunk_num),
+            "SELECT 1 FROM chunks WHERE document=? AND chunk_num=?",
+            (document, chunk_num),
         ).fetchone()
     return row is not None
 
+def get_country_figures(country: str, must_be_intervention: bool, min_year: int | None = None, max_year: int | None = None):
+    conditions = ["m.country = ?"]
+    params: list = [country]
+
+    if must_be_intervention:
+        conditions.append("m.is_intervention")
+    if min_year is not None:
+        conditions.append("c.year >= ?")
+        params.append(min_year)
+    if max_year is not None:
+        conditions.append("c.year <= ?")
+        params.append(max_year)
+
+    where = " AND ".join(conditions)
+    query = f"""
+        SELECT COUNT(*) FROM mentions_and_interventions m
+        JOIN chunks c ON m.document = c.document AND m.chunk_num = c.chunk_num
+        WHERE {where}
+    """
+    with _get_connection() as conn:
+        return conn.execute(query, params).fetchone()[0]
+
 def get_ocrd_final_reports():
-    # Activate when OCR DONE.
-    # scrape_final_reports.run_final_report_downloading_pipeline()
+    scrape_final_reports.run_final_report_downloading_pipeline()
 
     paths = []
     for path in FINAL_REPORT_PATH.iterdir():
@@ -85,68 +127,81 @@ def get_ocrd_final_reports():
     
     return ocr_report_dict
 
+def fuzzy_term_coincidence_checker(sentence: str, terms: list[str]):
+    sentence = sentence.lower()
 
-def debug_token_estimate(to_parse: list[tuple[str, str, int]], prompt: str) -> None:
-    _tok = lambda s: len(s) // 4
-    prompt_tokens = _tok(prompt)
-    chunk_tokens = sum(_tok(chunk) for _, chunk, _ in to_parse)
-    total = len(to_parse) * prompt_tokens + chunk_tokens
-    print(f"chunks:        {len(to_parse)}")
-    print(f"prompt tokens: {prompt_tokens} × {len(to_parse)} = {len(to_parse) * prompt_tokens}")
-    print(f"chunk tokens (total): {chunk_tokens}")
-    print(f"estimated total input tokens: {total}  (~4 chars/tok)")
+    return list(filter(lambda c: fuzz.partial_ratio(c, sentence) >= 90, terms))
 
 
-async def _parse_and_persist_one(base_name: str, chunk: str, chunk_num: int, prompt: str, type: str) -> None:
-    response = await _openrouter_client.chat.completions.create(
-        model="deepseek/deepseek-v4-flash",
-        extra_body={
-            "provider": {
-                # Option 1: Strictly restrict to these providers only
-                "only": ["cloudflare"]
-            }
-        },
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": chunk},
-        ],
-    )
-    mentions = response.choices[0].message.content
-    await db_set(type, base_name, chunk_num, chunk, mentions)
+class FinalReportBaker:
+    INTERVENTION_TERMS = ['stated', 'noted', "declared", "expressed", "mentioned", "announced", "asserted", "conveyed", "disclosed", "observed", "recorded", "highlighted", "pointed out", "acknowledged", "recognized", "reported"]
+    COUNTRIES = [
+            "argentina", "australia", "belgium", "brazil", "bulgaria", "chile", "china",
+            "czech republic", "ecuador", "finland", "france", "germany", "india",
+            "Italy", "japan", "korea", "netherlands", "new zealand",
+            "norway", "peru", "poland", "russia", "south africa",
+            "spain", "sweden", "ukraine", "uruguay", "united kingdom", "united states"
+    ]
 
+    def __init__(self):
+        with open("data/final_reports/pdf_to_atcm.json", "r") as f:
+            pdf_to_atcm_year = json.load(f)
 
-async def parse_and_persist_chunk_info(to_parse: list[tuple[str, str, int]], prompt: str, type: str, concurrency: int = 100) -> None:
-    sem = asyncio.Semaphore(concurrency)
-    async def _bounded(base_name: str, chunk: str, chunk_num: int) -> None:
-        async with sem:
-            await _parse_and_persist_one(base_name, chunk, chunk_num, prompt, type)
-    await asyncio.gather(*[_bounded(b, c, n) for b, c, n in to_parse])
+        for pdf in pdf_to_atcm_year:
+            pdf_to_atcm_year[pdf] = conversions.actm_meeting_to_year(pdf_to_atcm_year[pdf])
 
-
-class FinalReportInterventionFigures:
-    INTERVENTION_PROMPT = """You are an assistant for Antarctic research.
-    We are attempting to find out how often various countries are said to have "intervened" in ATCM discussions.
-    We say that a country intervened in a discussion if it is explicitly written that their delegation participated directly in a conversation.
-    For example, if it was written that "Ukraine stated X" or "Ukraine mentioned X" e.t.c., that would be an intervention from Ukraine. But if Ukraine was passively mentioned, e.g. "the conference was hosted in Ukraine", or "the invasion of Ukraine" that would not be.
-    Please return *ONLY* a list of countries which intervened in a discussion segment as a list with no additional commentary. If unsure return an empty list. E.g. ["Australia", "Canada"]"""
-    INTERVENTION = "intervention"
-
-    def __init__(self):        
+        nltk.download('punkt_tab')
         ocrd_reports = get_ocrd_final_reports()
 
         to_parse = []
         for base_name in ocrd_reports:
             report_text = ocrd_reports[base_name]
-            for i, chunk in enumerate(more_itertools.batched(report_text.split('.'), 5)):
-                if not db_check_key_exists(self.INTERVENTION, base_name, i):
-                    to_parse.append((base_name, '.'.join(chunk), i,))
+            sentences = sent_tokenize(report_text)
 
-        print(debug_token_estimate(to_parse, self.INTERVENTION_PROMPT))
-        asyncio.run(parse_and_persist_chunk_info(to_parse, self.INTERVENTION_PROMPT, self.INTERVENTION))
+            for i, chunk in enumerate(sentences):
+                if not check_document_exists(base_name, i):
+                    to_parse.append((base_name, chunk, i,))
 
-class FinalReportMentionFigures:
+        for t in to_parse:
+            self.add_mentions_and_interventions(t[0], t[2], t[1], pdf_to_atcm_year.get(t[0]))
+
+    def add_mentions_and_interventions(self, document: str, chunk_num: int, chunk: str, year: int | None = None):
+        countries = fuzzy_term_coincidence_checker(chunk, self.COUNTRIES)
+        is_intervention = len(fuzzy_term_coincidence_checker(chunk, self.INTERVENTION_TERMS)) > 0
+
+        set_mentions_and_interventions(document, chunk_num, countries, is_intervention)
+        set_document(document, chunk_num, chunk, year)
+
+class FinalReportMentionFigures(FinalReportBaker):
     def __init__(self):
-        pass
+        super().__init__()
+        self.country_to_figure = {}
+
+        for country in super().COUNTRIES:
+            self.country_to_figure[" ".join([c.capitalize() for c in country.split(" ")])] = get_country_figures(country, False, 2000, 2024)
+
+    def get_country_score(self, country: str) -> int:
+        return country_meta_info.get_country_value_from_dict(self.country_to_figure, country)
+
+    def figure_title(self) -> str:
+        return "Final Report Mentions"
+
+
+class FinalReportInterventionFigures(FinalReportBaker):
+    def __init__(self):
+        super().__init__()
+        self.country_to_figure = {}
+
+        for country in super().COUNTRIES:
+            self.country_to_figure[" ".join([c.capitalize() for c in country.split(" ")])] = get_country_figures(country, True, 2000, 2024)
+
+    def get_country_score(self, country: str) -> int:
+        return country_meta_info.get_country_value_from_dict(self.country_to_figure, country)
+
+    def figure_title(self) -> str:
+        return "Final Report Interventions"
+
 
 if __name__ == "__main__":
-    FinalReportInterventionFigures()
+    FinalReportMentionFigures()
+    FinalReportMentionFigures()

@@ -1,9 +1,9 @@
 country_alternative_names = {
-    "Republic of Korea": ["South Korea"],
+    "Republic of Korea": ["South Korea", "Korea"],
     "Czechia": ["Czech Republic"],
     "Russia": ["Russian Federation"],
     "Turkey": ["Türkiye"],
-    "United States": ["United States of America", "USA"],
+    "United States": ["United States of America", "USA", "United States"],
 }
 
 def get_country_value_from_dict(country_dict, country_name):
