@@ -1,1 +1,4 @@
 *.sqlite3*
+MeasureCorpus*
+SCAR_Leadership.xlsx
+scraping_failure_list.txt

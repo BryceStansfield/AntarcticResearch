@@ -22,9 +22,9 @@ class FacilityFigures:
             else:
                 self.country_sums[row["Operator (primary)"]] += row["Seasonal Adjusted Peak Population"]
     
-    def get_country_score(self, country: str) -> int:
-        return country_meta_info.get_country_value_from_dict(self.country_sums, country)
-    
+    def country_dict(self) -> dict:
+        return dict(self.country_sums)
+
     def figure_title(self) -> str:
         return "Facility Population"
 
@@ -49,8 +49,8 @@ class VesselCrewFigures:
 
         self.country_sums = self.vessels.groupby("Country")["Total Capacity"].sum().to_dict()
     
-    def get_country_score(self, country: str) -> int:
-        return country_meta_info.get_country_value_from_dict(self.country_sums, country)
+    def country_dict(self) -> dict:
+        return dict(self.country_sums)
 
     def figure_title(self) -> str:
         return "Vessel Crew"

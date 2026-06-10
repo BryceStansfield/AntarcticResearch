@@ -180,8 +180,8 @@ class FinalReportMentionFigures(FinalReportBaker):
         for country in super().COUNTRIES:
             self.country_to_figure[" ".join([c.capitalize() for c in country.split(" ")])] = get_country_figures(country, False, 2000, 2024)
 
-    def get_country_score(self, country: str) -> int:
-        return country_meta_info.get_country_value_from_dict(self.country_to_figure, country)
+    def country_dict(self) -> dict:
+        return self.country_to_figure
 
     def figure_title(self) -> str:
         return "Final Report Mentions"
@@ -195,8 +195,8 @@ class FinalReportInterventionFigures(FinalReportBaker):
         for country in super().COUNTRIES:
             self.country_to_figure[" ".join([c.capitalize() for c in country.split(" ")])] = get_country_figures(country, True, 2000, 2024)
 
-    def get_country_score(self, country: str) -> int:
-        return country_meta_info.get_country_value_from_dict(self.country_to_figure, country)
+    def country_dict(self) -> dict:
+        return self.country_to_figure
 
     def figure_title(self) -> str:
         return "Final Report Interventions"
