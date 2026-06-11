@@ -1,0 +1,3 @@
+Facilities_Nov2024 and Vessels+in+operation_Nov2024 sourced from COMNAP 
+
+Scopus results from query: TITLE-ABS-KEY(Antarctica) AND ( LIMIT-TO ( EXACTKEYWORD,"Antarctica" ) OR LIMIT-TO ( EXACTKEYWORD,"East Antarctica" ) OR LIMIT-TO ( EXACTKEYWORD,"Antarctic Regions" ) OR LIMIT-TO ( EXACTKEYWORD,"Southern Ocean" ) OR LIMIT-TO ( EXACTKEYWORD,"West Antarctica" ) OR LIMIT-TO ( EXACTKEYWORD,"Antarctic Peninsula" ) OR LIMIT-TO ( EXACTKEYWORD,"Candida Antarctica" ) OR LIMIT-TO ( EXACTKEYWORD,"Antarctic Ice Sheet" ) ) AND ( LIMIT-TO ( SRCTYPE,"j" ) ) AND ( LIMIT-TO ( PUBSTAGE,"final" ) ) AND ( LIMIT-TO ( DOCTYPE,"ar" ) ) AND PUBYEAR > 1999 AND PUBYEAR < 2025
