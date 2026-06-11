@@ -17,6 +17,7 @@ dependencies = [
     "pyarrow>=15.0.0",
     "pymupdf>=1.24.0",
     "requests>=2.33.1",
+    "scikit-learn>=1.9.0",
     "thefuzz>=0.22.1",
     "xlrd>=2.0.2",
 ]

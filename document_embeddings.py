@@ -7,6 +7,7 @@ import openai
 import secret_management
 import pandas
 import multiprocessing
+from sklearn.neighbors import NearestNeighbors
 
 EMBEDDINGS_DB_PATH = pathlib.Path("data/document_embeddings.sqlite3")
 DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-4b"
@@ -72,6 +73,44 @@ def generate_embedding(document_uuid: str, segment_number: int, document_type: s
 
     return vector
 
+def get_embeddings_by_type(document_type: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[tuple[tuple[str, int], list[float]]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT document_uuid, segment_number, embedding FROM embeddings WHERE document_type=? AND model_uuid=?",
+            (document_type, model_uuid),
+        ).fetchall()
+    return [
+        ((document_uuid, segment_number), array.array('f', embedding).tolist())
+        for document_uuid, segment_number, embedding in rows
+    ]
+
+def get_all_embeddings(model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[tuple[tuple[str, int], list[float]]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT document_uuid, segment_number, embedding FROM embeddings WHERE model_uuid=?",
+            (model_uuid,),
+        ).fetchall()
+    return [
+        ((document_uuid, segment_number), array.array('f', embedding).tolist())
+        for document_uuid, segment_number, embedding in rows
+    ]
+
+class EmbeddingLookerUpper():
+    def __init__(self, document_type: str | None, model_uuid: str = DEFAULT_EMBEDDING_MODEL):
+        if isinstance(document_type, str):
+            self.embeddings = get_embeddings_by_type(document_type,)
+        else:
+            self.embeddings = get_all_embeddings(model_uuid)
+        
+        self.nn = NearestNeighbors().fit([e[1] for e in self.embeddings])
+    
+    def get_nearest_neighbours(self, document_uuid, segment_number, n_neighbours=5, model_uuid: str = DEFAULT_EMBEDDING_MODEL):
+        document_embedding = get_embedding(document_uuid, segment_number, model_uuid)
+
+        nearest_neighbours = self.nn.kneighbors([document_embedding], n_neighbors=n_neighbours)
+        
+        return list(map(lambda i: self.embeddings[i][0],  nearest_neighbours[1][0]))
+
 def embed_all_measures():
     pd = pandas.read_csv("data/MeasureCorpusEnriched.csv")
 
@@ -91,4 +130,5 @@ def embed_all_measures():
         pool.starmap(generate_embedding, to_embed)
 
 if __name__ == "__main__":
-    embed_all_measures()
+    #embed_all_measures()
+    EmbeddingLookerUpper("measure").get_nearest_neighbours("MEASURE__2", 1)
