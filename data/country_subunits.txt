@@ -26,3 +26,7 @@ Shandong; China
 Rio de Janeiro; Brazil
 Alacala; Spain
 québec; Canada
+Greenland; Denmark
+potchefstroom; South Africa
+Melbourne; Australia
+Iowa; United States
