@@ -12,3 +12,4 @@ wheels/
 # API keys
 secrets.json
 debug*
+notes*

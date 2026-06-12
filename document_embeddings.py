@@ -29,7 +29,7 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
-def has_embedding(document_uuid: str, segment_number: int, model_uuid: str) -> bool:
+def has_embedding(document_uuid: str, segment_number: int, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> bool:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT 1 FROM embeddings WHERE document_uuid=? AND segment_number=? AND model_uuid=?",
@@ -38,7 +38,7 @@ def has_embedding(document_uuid: str, segment_number: int, model_uuid: str) -> b
     return row is not None
 
 
-def get_embedding(document_uuid: str, segment_number: int, model_uuid: str) -> list[float] | None:
+def get_embedding(document_uuid: str, segment_number: int, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[float] | None:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT embedding FROM embeddings WHERE document_uuid=? AND segment_number=? AND model_uuid=?",
@@ -111,6 +111,24 @@ class EmbeddingLookerUpper():
         
         return list(map(lambda i: self.embeddings[i][0],  nearest_neighbours[1][0]))
 
+def get_representation_of_measure(row):
+    return f"Subject: {row.Subject}\n{row.Content}"
+
+def measure_id_to_uuid(measure_id):
+    return f"MEASURE__{measure_id}"
+
+class DocumentTextGetter():
+    def __init__(self) -> None:
+        self.measures_pd = pandas.read_csv("data/MeasureCorpusEnriched.csv")
+    
+    def get_measure_representation(self, measure_id):
+        text_rep = get_representation_of_measure(self.measures_pd[self.measures_pd["Document_Number"] == measure_id].iloc[0])
+        return text_rep
+
+    def get_document_representation(self, document_uuid: str) -> str:
+        measure_id = int(document_uuid.removeprefix("MEASURE__"))
+        return self.get_measure_representation(measure_id)
+
 def embed_all_measures():
     pd = pandas.read_csv("data/MeasureCorpusEnriched.csv")
 
@@ -121,9 +139,11 @@ def embed_all_measures():
             continue
         
         doc_num = row.Document_Number
-        text_rep = f"Subject: {row.Subject}\n{row.Content}"
+        doc_id = measure_id_to_uuid(doc_num)
+        text_rep = get_representation_of_measure(row)
 
-        to_embed.append((f"MEASURE__{doc_num}", 1, "measure", text_rep,))
+        if not has_embedding(doc_id, 1):
+            to_embed.append((doc_id, 1, "measure", text_rep,))
 
     with multiprocessing.Pool(processes=20) as pool:
         # map blocks execution until all workers finish returning data
@@ -131,4 +151,5 @@ def embed_all_measures():
 
 if __name__ == "__main__":
     #embed_all_measures()
-    EmbeddingLookerUpper("measure").get_nearest_neighbours("MEASURE__2", 1)
+    #print(DocumentTextGetter().get_measure_representation(2))
+    print(EmbeddingLookerUpper(None).get_nearest_neighbours("MEASURE__2", 1))
