@@ -5,22 +5,27 @@ import pathlib
 
 import numpy as np
 from bertopic import BERTopic
-from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
+from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance, OpenAI
 
 import document_embeddings
+import openai
+import secret_management
 
 DATA_DIR = pathlib.Path("data/test")
 
 class OpenRouterEmbedder:
     """BERTopic-compatible embedder backed by document_embeddings.py + OpenRouter."""
 
+    def __init__(self, type) -> None:
+        self.type = type
+    
     def encode(self, documents: list[str], show_progress_bar: bool = False) -> np.ndarray:
         vectors = []
         for i, text in enumerate(documents):
             # Stable UUID derived from content so embeddings are cached across runs.
             doc_uuid = hashlib.sha256(text.encode()).hexdigest()
             vec = document_embeddings.get_or_generate_embedding(
-                doc_uuid, 0, "bertopic", text
+                doc_uuid, 0, self.type, text
             )
             vectors.append(vec)
             if show_progress_bar and (i + 1) % 10 == 0:
@@ -35,12 +40,17 @@ def load_docs(data_dir: pathlib.Path = DATA_DIR) -> tuple[list[str], list[str]]:
     texts = [p.read_text(encoding="utf-8") for p in paths]
     return doc_ids, texts
 
-
 def main():
     doc_ids, texts = load_docs()
     print(f"Loaded {len(texts)} documents from {DATA_DIR}/")
 
-    topic_model = BERTopic(embedding_model=OpenRouterEmbedder(), representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
+    openai_client = openai.OpenAI(
+        api_key=secret_management.get("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
+    )
+    openai_generator = OpenAI(openai_client, model="deepseek/deepseek-v4-flash")
+
+    topic_model = BERTopic(embedding_model=OpenRouterEmbedder("WorkingPaper"), representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
     topics, probs = topic_model.fit_transform(texts)
 
     topic_info = topic_model.get_topic_info()
@@ -57,7 +67,6 @@ def main():
                 f.write(f"Topic {topic_id}: {word_str}\n")
 
     return topic_model, doc_ids, topics, probs
-
 
 if __name__ == "__main__":
     main()

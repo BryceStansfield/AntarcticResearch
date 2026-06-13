@@ -150,6 +150,4 @@ def embed_all_measures():
         pool.starmap(generate_embedding, to_embed)
 
 if __name__ == "__main__":
-    #embed_all_measures()
-    #print(DocumentTextGetter().get_measure_representation(2))
     print(EmbeddingLookerUpper(None).get_nearest_neighbours("MEASURE__2", 1))

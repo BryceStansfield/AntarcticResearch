@@ -1,13 +1,12 @@
 import pandas as pd
 
 import country_meta_info
-from infrastructure_figures import FacilityFigures, VesselCrewFigures
-from final_report_metrics import FinalReportMentionFigures, FinalReportInterventionFigures
-from scar_leadership_figures import ScarLeadershipFigures
-from scopus_figures import ScopusFigures
-from ratification_speed import RatificationSpeed
-from working_paper_authorship import WorkingPaperAuthorship
-from graph_centrality import WPCollaborationGraphCentrality
+from antarctic_ladder_metrics.infrastructure_figures import FacilityFigures, VesselCrewFigures
+from antarctic_ladder_metrics.final_report_metrics import FinalReportMentionFigures, FinalReportInterventionFigures
+from antarctic_ladder_metrics.scar_leadership_figures import ScarLeadershipFigures
+from antarctic_ladder_metrics.scopus_figures import ScopusFigures
+from antarctic_ladder_metrics.ratification_speed import RatificationSpeed
+from antarctic_ladder_metrics.working_paper_metrics import WorkingPaperAuthorship, WPCollaborationGraphCentrality
 
 def aggregate_all_figures():
     # TODO: Make sure that all figures are over the same time period.
