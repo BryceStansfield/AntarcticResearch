@@ -5,10 +5,12 @@ from infrastructure_figures import FacilityFigures, VesselCrewFigures
 from final_report_metrics import FinalReportMentionFigures, FinalReportInterventionFigures
 from scar_leadership_figures import ScarLeadershipFigures
 from scopus_figures import ScopusFigures
+from ratification_speed import RatificationSpeed
+from working_paper_authorship import WorkingPaperAuthorship
 
 def aggregate_all_figures():
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
-    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures()]
+    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship()]
     figure_dicts = [figure.country_dict() for figure in figures]
 
     # TODO: Next session, investigate gap between these figures and Parsas for Influence.

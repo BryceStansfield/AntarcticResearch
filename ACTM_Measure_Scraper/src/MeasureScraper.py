@@ -4,7 +4,7 @@ import pandas as pd
 import time
 
 def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
-    data = pd.DataFrame(columns=['Document_Number', 'Subject', 'Status', 'Category', 'Topics', 'Title', 'Content'])
+    data = pd.DataFrame(columns=['Document_Number', 'Subject', 'Status', 'Category', 'Topics', 'Title', 'Content', 'Approvals'])
 
     base_url = 'https://www.ats.aq/devAS/Meetings/Measure/'
     failure_list = []
@@ -26,6 +26,7 @@ def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
                 break
 
             elements = soup.find_all('span', class_='characteristics__item__text__text')
+            approval_container = soup.find("aside")
             content_div = soup.find_all('div', class_='text-container')
             Title = soup.find('h1', class_='title')
 
@@ -36,6 +37,17 @@ def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
                 topics = list(filter(lambda s: s is not None and s != '', [t.strip() for t in elements[3].get_text(strip=True).split('-')])) if len(elements) > 3 else None
                 content = content_div[1].get_text(strip=True) if len(content_div) > 1 else None
                 title = Title.get_text(strip=True) if Title else None
+
+                if approval_container != None:
+                    approvals = approval_container.find_all("tr")
+
+                    if approvals == None or approvals == []:
+                        approvals_text = approval_container.find("p").text
+                    else:
+                        approvals = list(filter(lambda tr: tr.find("th") != None and tr.find("td") != None, approvals))
+                        approvals_text = "\n".join(map(lambda tr: tr.find("th").text + " " + tr.find("td").text, approvals))
+                else:
+                    approvals_text = ""
                 
                 # NOTE: Currently attachements are unscraped.
                 data.loc[len(data)] ={
@@ -45,7 +57,8 @@ def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
                     'Category': category,
                     'Topics': topics,
                     'Title': title,
-                    'Content': content
+                    'Content': content,
+                    'Approvals': approvals_text
                 }
             else:
                 print(f"Couldn't find enough information on page {i}")

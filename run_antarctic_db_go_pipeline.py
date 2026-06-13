@@ -4,10 +4,11 @@ Run the antarctic-database-go pipeline from the AntarcticResearch top-level dire
 
 Pipeline steps:
   1. Build Go binaries
-  2. Start the PyMuPDF microservice (port 11000) — required by steps 3 and 4
+  2. Start the PyMuPDF microservice (port 11000) — required by steps 3 and 5
   3. prepare-document-pipeline  — download & analyse documents, split scanned PDFs
-  4. run-fulltext               — extract text from non-scanned documents
-  5. extract-documents          — assemble the final dataset
+  4. run-ocr                    — OCR scanned pages (needs NVIDIA_API_KEY or ANTHROPIC_API_KEY)
+  5. run-fulltext               — extract text from non-scanned documents
+  6. extract-documents          — assemble the final dataset
 
 API keys are read from secrets.json at the repo root (gitignored).
 They can also be set as environment variables, which take precedence.
@@ -27,6 +28,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -206,10 +208,33 @@ def patch_utas_metadata(parquet_file: Path) -> None:
     print(f"    Patched {patched} UTAS records in {parquet_file.name}.")
 
 
+def clean_previous_run() -> None:
+    print("==> Cleaning previous run artifacts ...")
+    targets = [
+        PROCESSED_DIR / "document-pipeline.sqlite3",
+        PROCESSED_DIR / "document-pipeline.sqlite3-shm",
+        PROCESSED_DIR / "document-pipeline.sqlite3-wal",
+        PROCESSED_DIR / "document-summary.parquet",
+        SENTINEL,
+    ]
+    for path in targets:
+        if path.exists():
+            path.unlink()
+            print(f"    Removed {path.relative_to(REPO_ROOT)}")
+    for log in PROCESSED_DIR.glob("*.log"):
+        log.unlink()
+        print(f"    Removed {log.relative_to(REPO_ROOT)}")
+    for dataset_dir in PROCESSED_DIR.glob("dataset-*"):
+        shutil.rmtree(dataset_dir)
+        print(f"    Removed {dataset_dir.relative_to(REPO_ROOT)}/")
+    print("    Done. (http-cache.sqlite3 preserved)")
+
+
 def build_binaries() -> None:
     print("==> Building Go binaries ...")
     binaries = [
         ("prepare-document-pipeline", "./cmd/prepare-document-pipeline"),
+        ("run-ocr",                   "./cmd/run-ocr"),
         ("run-fulltext",              "./cmd/run-fulltext"),
         ("extract-documents",         "./cmd/extract-documents"),
     ]
@@ -277,19 +302,49 @@ def main() -> None:
         description="Run the antarctic-database-go pipeline."
     )
     parser.add_argument(
+        "--ocr-service",
+        default="anthropic",
+        choices=["nvidia", "anthropic"],
+        help="OCR service to use for scanned documents (default: anthropic)",
+    )
+    parser.add_argument(
+        "--ocr-batch-size",
+        type=int,
+        default=10,
+        help="Number of pages per OCR batch (default: 10)",
+    )
+    parser.add_argument(
         "--quick",
         action="store_true",
         help="Process only a small subset of documents (for testing)",
+    )
+    parser.add_argument(
+        "--skip-ocr",
+        action="store_true",
+        help="Skip the run-ocr step (e.g. if no scanned documents exist)",
+    )
+    parser.add_argument(
+        "--skip-prepare",
+        action="store_true",
+        help="Skip the prepare-document-pipeline step and UTAS metadata patch (resume after a mid-OCR crash)",
     )
     parser.add_argument(
         "--force",
         action="store_true",
         help="Rerun even if a previous successful run's sentinel exists",
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove pipeline DB, parquet, logs, and dataset dirs before running (preserves http-cache.sqlite3 and UTAS PDFs)",
+    )
     args = parser.parse_args()
 
     # Load API keys from secrets.json before any checks
     load_secrets()
+
+    if args.clean:
+        clean_previous_run()
 
     # Ensure all output directories exist
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
@@ -307,6 +362,16 @@ def main() -> None:
         )
         return
 
+    # Warn early if the required API key is missing
+    if not args.skip_ocr:
+        key_name = "NVIDIA_API_KEY" if args.ocr_service == "nvidia" else "ANTHROPIC_API_KEY"
+        if not os.environ.get(key_name):
+            print(
+                f"WARNING: {key_name} is not set in the environment or secrets.json.\n"
+                f"         The OCR step will fail. Pass --skip-ocr to skip it.",
+                file=sys.stderr,
+            )
+
     # Step 1: build
     build_binaries()
 
@@ -317,27 +382,44 @@ def main() -> None:
         tag = datestamp_hash()
 
         # Step 3: prepare-document-pipeline
-        prepare_cmd = [
-            str(PROJECT_ROOT / "prepare-document-pipeline"),
-            "--http-cache",           str(PROCESSED_DIR / "http-cache.sqlite3"),
-            "--new-pipeline-db-file", str(PROCESSED_DIR / "document-pipeline.sqlite3"),
-            "--document-summary",     str(PROCESSED_DIR / "document-summary.parquet"),
-            "--utas-raw-pdfs",        str(UTAS_DIR),
-            "--wps-csv",              str(WPS_CSV),
-        ]
-        if args.quick:
-            prepare_cmd.append("--quick")
+        if args.skip_prepare:
+            print("==> Skipping prepare-document-pipeline and UTAS metadata patch (--skip-prepare).")
+        else:
+            prepare_cmd = [
+                str(PROJECT_ROOT / "prepare-document-pipeline"),
+                "--http-cache",           str(PROCESSED_DIR / "http-cache.sqlite3"),
+                "--new-pipeline-db-file", str(PROCESSED_DIR / "document-pipeline.sqlite3"),
+                "--document-summary",     str(PROCESSED_DIR / "document-summary.parquet"),
+                "--utas-raw-pdfs",        str(UTAS_DIR),
+                "--wps-csv",              str(WPS_CSV),
+            ]
+            if args.quick:
+                prepare_cmd.append("--quick")
 
-        run_step(
-            "prepare-document-pipeline",
-            prepare_cmd,
-            PROCESSED_DIR / f"prepare-document-pipeline-{tag}.log",
-        )
+            run_step(
+                "prepare-document-pipeline",
+                prepare_cmd,
+                PROCESSED_DIR / f"prepare-document-pipeline-{tag}.log",
+            )
 
-        print("==> Patching UTAS metadata in document-summary.parquet ...")
-        patch_utas_metadata(PROCESSED_DIR / "document-summary.parquet")
+            print("==> Patching UTAS metadata in document-summary.parquet ...")
+            patch_utas_metadata(PROCESSED_DIR / "document-summary.parquet")
 
-        # Step 4: run-fulltext
+        # Step 4: run-ocr
+        if not args.skip_ocr:
+            run_step(
+                f"run-ocr  (service={args.ocr_service})",
+                [
+                    str(PROJECT_ROOT / "run-ocr"),
+                    "--pipeline-db-file", str(PROCESSED_DIR / "document-pipeline.sqlite3"),
+                    "--use-asset-upload=false",
+                    "--service", args.ocr_service,
+                    "--batch-size", str(args.ocr_batch_size),
+                ],
+                PROCESSED_DIR / f"ocr-pipeline-{tag}.log",
+            )
+
+        # Step 5: run-fulltext
         run_step(
             "run-fulltext",
             [
@@ -347,15 +429,7 @@ def main() -> None:
             PROCESSED_DIR / f"fulltext-pipeline-{tag}.log",
         )
 
-        SENTINEL.write_text(
-            f"Completed: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z\n"
-            f"(extract-documents pending local OCR endpoint)\n"
-        )
-        print(f"\nPipeline complete (extract-documents skipped — add local OCR endpoint first).")
-        print(f"Sentinel: {SENTINEL.relative_to(REPO_ROOT)}")
-        return
-
-        # Step 5: extract-documents
+        # Step 6: extract-documents
         dataset_dir = PROCESSED_DIR / f"dataset-{tag}"
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
@@ -373,14 +447,13 @@ def main() -> None:
             PROCESSED_DIR / f"extract-documents-{tag}.log",
         )
 
-        sentinel_text = (
+        SENTINEL.write_text(
             f"Completed: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z\n"
             f"Dataset:   {dataset_dir.relative_to(REPO_ROOT)}\n"
         )
-        print(f"Dataset:  {dataset_dir.relative_to(REPO_ROOT)}")
 
-        SENTINEL.write_text(sentinel_text)
         print(f"\nPipeline complete.")
+        print(f"Dataset:  {dataset_dir.relative_to(REPO_ROOT)}")
         print(f"Sentinel: {SENTINEL.relative_to(REPO_ROOT)}")
 
     finally:

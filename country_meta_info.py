@@ -24,7 +24,7 @@ class CaseInsensitiveDict(dict):
         return result
 
 country_alternative_names = CaseInsensitiveDict.from_dict({
-    "Republic of Korea": ["South Korea", "Korea", "S Korea"],
+    "Republic of Korea": ["South Korea", "Korea", "S Korea", "Korea (ROK)"],
     "Czechia": ["Czech Republic"],
     "Russia": ["Russian Federation"],
     "United States": ["United States of America", "USA", "United States", "US"],
