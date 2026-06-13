@@ -6,9 +6,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.14.3",
+    "bertopic>=0.17.4",
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.9",
     "more-itertools>=11.1.0",
+    "networkx>=3.6.1",
     "nltk>=3.9.4",
     "openai>=2.41.0",
     "paddleocr>=3.6.0",

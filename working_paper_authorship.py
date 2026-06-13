@@ -7,6 +7,7 @@ class WorkingPaperAuthorship():
     def __init__(self) -> None:
         wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
         wp_authorship_table = wp_authorship_table[wp_authorship_table["meeting_type"] == "ATCM"][["parties", "meeting_year"]]
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= 2000) & (wp_authorship_table["meeting_year"] <= 2024)]
         wp_authorship_table["First Author"] = wp_authorship_table["parties"].map(lambda l: l[0])
         
         first_authors = list(wp_authorship_table["First Author"])

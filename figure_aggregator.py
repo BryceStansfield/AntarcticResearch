@@ -7,10 +7,12 @@ from scar_leadership_figures import ScarLeadershipFigures
 from scopus_figures import ScopusFigures
 from ratification_speed import RatificationSpeed
 from working_paper_authorship import WorkingPaperAuthorship
+from graph_centrality import WPCollaborationGraphCentrality
 
 def aggregate_all_figures():
+    # TODO: Make sure that all figures are over the same time period.
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
-    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship()]
+    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), WPCollaborationGraphCentrality()]
     figure_dicts = [figure.country_dict() for figure in figures]
 
     # TODO: Next session, investigate gap between these figures and Parsas for Influence.
