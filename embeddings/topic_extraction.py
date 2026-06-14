@@ -7,7 +7,7 @@ import numpy as np
 from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance, OpenAI
 
-import document_embeddings
+import embeddings.document_embeddings as document_embeddings
 import openai
 import secret_management
 
