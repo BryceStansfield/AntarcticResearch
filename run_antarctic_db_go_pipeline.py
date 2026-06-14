@@ -489,7 +489,7 @@ def main() -> None:
         )
 
         # Step 6: assemble per-page OCR into full_text for scanned documents
-        assemble_ocr_fulltext()
+        # assemble_ocr_fulltext()  # redundant: SaveOcrTextFiles reads ocr table directly
 
         # Step 7: extract-documents
         dataset_dir = PROCESSED_DIR / f"dataset-{tag}"
