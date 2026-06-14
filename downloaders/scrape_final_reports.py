@@ -2,7 +2,7 @@ from bs4 import BeautifulSoup
 import requests
 import pathlib
 import json
-import final_report_ocr
+import downloaders.final_report_ocr as final_report_ocr
 
 def download_pdf_to_dir(dump_directory: pathlib.Path, url: str):
     result = requests.get(url)

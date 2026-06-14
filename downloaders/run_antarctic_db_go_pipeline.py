@@ -8,8 +8,7 @@ Pipeline steps:
   3. prepare-document-pipeline  — download & analyse documents, split scanned PDFs
   4. run-ocr                    — OCR scanned pages (needs NVIDIA_API_KEY or ANTHROPIC_API_KEY)
   5. run-fulltext               — extract text from non-scanned documents
-  6. assemble-ocr-fulltext      — concatenate per-page OCR results into full_text for scanned docs
-  7. extract-documents          — assemble the final dataset
+  6. extract-documents          — assemble the final dataset
 
 API keys are read from secrets.json at the repo root (gitignored).
 They can also be set as environment variables, which take precedence.
@@ -274,64 +273,6 @@ def start_microservice() -> subprocess.Popen:
     return proc
 
 
-def assemble_ocr_fulltext() -> None:
-    """Check all scanned pages are ocr-done, then write full_text rows from the ocr table."""
-    import sqlite3
-
-    db_path = PROCESSED_DIR / "document-pipeline.sqlite3"
-    print("==> assemble-ocr-fulltext")
-
-    con = sqlite3.connect(db_path)
-    try:
-        not_done = con.execute("""
-            SELECT COUNT(*) FROM pages p
-            JOIN documents d ON d.id = p.id
-            WHERE d.is_scanned = 1 AND p.status != 'ocr-done'
-        """).fetchone()[0]
-
-        if not_done > 0:
-            print(
-                f"    FAILED: {not_done} scanned page(s) are not yet ocr-done. "
-                "Run run-ocr to completion first.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S.000+00:00"
-        )
-
-        # GROUP_CONCAT processes rows in subquery order, so ORDER BY page_nr gives
-        # correct page ordering even though GROUP_CONCAT has no ORDER BY clause.
-        rows = con.execute("""
-            SELECT o.id, o.method, GROUP_CONCAT(o.page_text, char(10))
-            FROM (
-                SELECT o.id, o.method, o.page_nr, o.page_text
-                FROM ocr o
-                JOIN (
-                    SELECT id, page_nr, MAX(timestamp) AS latest_ts
-                    FROM ocr
-                    GROUP BY id, page_nr
-                ) latest ON latest.id = o.id
-                         AND latest.page_nr = o.page_nr
-                         AND o.timestamp = latest.latest_ts
-                ORDER BY o.id, o.page_nr
-            ) o
-            GROUP BY o.id, o.method
-        """).fetchall()
-
-        for doc_id, method, doc_text in rows:
-            con.execute(
-                "INSERT INTO full_text (id, document_text, method, timestamp) VALUES (?, ?, ?, ?)",
-                (doc_id, doc_text, method, timestamp),
-            )
-
-        con.commit()
-        print(f"    Assembled full_text for {len(rows)} scanned document(s).")
-    finally:
-        con.close()
-
-
 def run_step(name: str, cmd: list[str], log_file: Path) -> None:
     print(f"==> {name}")
     print(f"    Log: {log_file.relative_to(REPO_ROOT)}")
@@ -488,10 +429,7 @@ def main() -> None:
             PROCESSED_DIR / f"fulltext-pipeline-{tag}.log",
         )
 
-        # Step 6: assemble per-page OCR into full_text for scanned documents
-        # assemble_ocr_fulltext()  # redundant: SaveOcrTextFiles reads ocr table directly
-
-        # Step 7: extract-documents
+        # Step 6: extract-documents
         dataset_dir = PROCESSED_DIR / f"dataset-{tag}"
         dataset_dir.mkdir(parents=True, exist_ok=True)
 

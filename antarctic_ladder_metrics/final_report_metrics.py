@@ -5,7 +5,7 @@ import more_itertools
 import asyncio
 import time
 import nltk
-import scrape_final_reports
+import downloaders.scrape_final_reports as scrape_final_reports
 import json
 from thefuzz import fuzz
 from nltk.tokenize import sent_tokenize
