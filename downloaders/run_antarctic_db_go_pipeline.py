@@ -39,7 +39,7 @@ from pathlib import Path
 import pymupdf
 import requests
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = REPO_ROOT / "Submodules" / "antarctic-database-go"
 
 # All generated data lands here instead of inside the submodule
@@ -294,6 +294,54 @@ def run_step(name: str, cmd: list[str], log_file: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Garbled-text remediation
+# ---------------------------------------------------------------------------
+
+def _is_garbled(txt_path: Path) -> bool:
+    """Return True if the text file contains mostly non-printable bytes (broken encoding)."""
+    raw = txt_path.read_bytes()[:500]
+    if not raw.strip():
+        return False  # empty files are handled separately
+    non_printable = sum(1 for b in raw if b < 32 and b not in (9, 10, 13))
+    return non_printable / len(raw) > 0.1
+
+
+def fix_garbled_texts(dataset_dir: Path) -> None:
+    """Find garbled .txt files in the dataset, re-OCR their PDFs, and overwrite them."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from downloaders.python_ocr import load_api_keys, ocr_pdf  # noqa: PLC0415
+
+    txt_files = list(dataset_dir.rglob("*.txt"))
+    garbled = [p for p in txt_files if _is_garbled(p)]
+
+    if not garbled:
+        print("==> No garbled text files found.")
+        return
+
+    print(f"==> Found {len(garbled)} garbled text file(s); re-OCR-ing ...")
+
+    anthropic_key, nvidia_key = load_api_keys()
+    if not anthropic_key and not nvidia_key:
+        print(
+            "    WARNING: no OCR API key available — skipping garbled-text remediation.",
+            file=sys.stderr,
+        )
+        return
+
+    for txt_path in garbled:
+        pdf_path = txt_path.with_suffix(".pdf")
+        if not pdf_path.exists():
+            print(f"    SKIP (no matching PDF): {txt_path.relative_to(dataset_dir)}", file=sys.stderr)
+            continue
+        print(f"    {txt_path.relative_to(dataset_dir)}")
+        text = ocr_pdf(pdf_path, anthropic_key, nvidia_key)
+        txt_path.write_text(text, encoding="utf-8")
+        print(f"    Written ({len(text)} chars)")
+
+    print("    Done.")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -446,6 +494,8 @@ def main() -> None:
             ],
             PROCESSED_DIR / f"extract-documents-{tag}.log",
         )
+
+        fix_garbled_texts(dataset_dir)
 
         SENTINEL.write_text(
             f"Completed: {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z\n"

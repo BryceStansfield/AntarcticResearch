@@ -13,3 +13,8 @@ wheels/
 secrets.json
 debug*
 notes*
+
+
+data/antarctic-db/processed/wp_ip_file_locations.json
+.vscode*
+data/ladder_results.csv

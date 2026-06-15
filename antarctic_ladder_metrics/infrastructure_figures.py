@@ -5,7 +5,7 @@ import country_meta_info
 
 class FacilityFigures:
     def __init__(self) -> None:
-        self.facilities = pd.read_csv(pathlib.Path(__file__).parent / "data" /"Facilities_Nov2024.csv", encoding="ISO-8859-1")
+        self.facilities = pd.read_csv(pathlib.Path(__file__).parent.parent / "data" /"Facilities_Nov2024.csv", encoding="ISO-8859-1")
         
         # First we clean peak population. 
         self.facilities["Peak Population"] = self.facilities["Peak Population"].replace(',','', regex=True).fillna(0).astype(int)
@@ -30,7 +30,7 @@ class FacilityFigures:
 
 class VesselCrewFigures:
     def __init__(self) -> None:
-        self.vessels = pd.read_csv(pathlib.Path(__file__).parent / "data" / "Vessels+in+operation_Nov2024.csv", encoding="ISO-8859-1")
+        self.vessels = pd.read_csv(pathlib.Path(__file__).parent.parent / "data" / "Vessels+in+operation_Nov2024.csv", encoding="ISO-8859-1")
 
         # Data cleaning
         # NOTE: It might be good to loosen this restriction.

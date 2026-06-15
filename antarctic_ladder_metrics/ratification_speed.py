@@ -10,7 +10,7 @@ class RatificationSpeed():
 
         measures = pd.read_csv("data/MeasureCorpusEnriched.csv")
         measures = measures[(measures["Meeting_Type"] == "ATCM")
-                            & (measures["ATCM_Year"] >= 2000)
+                            & (measures["ATCM_Year"] >= 1995)
                             & (measures["ATCM_Year"] <= 2023)
                             & (measures["Type"] == "Measure")
                             & ~measures["Approvals"].str.contains("Fast Approval", na=False)
@@ -18,6 +18,7 @@ class RatificationSpeed():
                             #& ~measures["Approvals"].isna()]
 
         # TODO: Try using exact ATCM and approval dates.
+        # TODO: Choose how to deal with never going to be approved measures.
         self.country_approval_times = country_meta_info.CaseInsensitiveDict()
         def add_approval(country, approval_delay_years):
             if country[-1] == "*":
@@ -28,17 +29,15 @@ class RatificationSpeed():
                 else:
                     self.country_approval_times[country] = [approval_delay_years]
 
-        # Debug
-        print(measures[["Document_Number", "Status"]])
-        print(measures["Status"].unique())
-        print(measures.columns)
-
-        # Only 3 statuses for uneffective measures, let's just manually map from them to date.
-        status_to_end_date = {
-            "Did not enter into effect. No longer current:M 3 (2003)": 2003,
-            "Did not enter into effect. Withdrawn:M 4 (2011)": 2011,
-            "Not yet effective": 2023   # We act as if it's the end of 2023 for this analysis.
-        }
+        # All measures of form "... (year)", "Not yet effective", or Effective dd/mm/YYYY.
+        def extract_end_year(status):
+            if status == "Not yet effective":
+                return 2023
+            if "Effective" in status:
+                return int(status[-4:])
+            if status.endswith(')'):
+                return int(status[status.rfind('(')+1:-1])
+            raise ValueError(f"Cannot extract year from status: {status}")
 
         for row in measures.itertuples():
             approval_list = list(filter(lambda s: s != '', [s.strip() for s in row.Approvals.split('\n')]))
@@ -67,7 +66,7 @@ class RatificationSpeed():
                     if "Effective" in status:
                         add_approval(pair[0], int(status[len(status)-4:])-atcm_year)
                     else:
-                        add_approval(pair[0], status_to_end_date[row.Status]-atcm_year)
+                        add_approval(pair[0], extract_end_year(row.Status)-atcm_year)
 
         for country in self.country_approval_times:
             self.country_approval_times[country] = sum(self.country_approval_times[country])/len(self.country_approval_times[country])
@@ -79,4 +78,4 @@ class RatificationSpeed():
         return "Ratification Delay"
     
 if __name__ == "__main__":
-    RatificationSpeed()
+    print(RatificationSpeed().country_dict())
