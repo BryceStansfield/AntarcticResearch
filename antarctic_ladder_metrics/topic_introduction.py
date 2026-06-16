@@ -60,13 +60,19 @@ class TopicIntroduction():
                 topic_to_docs[t] = [documents[i]]
         
         earliest_docs = [min(docs, key=lambda d:d["sort_string"]) for docs in topic_to_docs.values()]
-        self.first_author_counts = Counter([d["parties"][0] for d in earliest_docs])
+        self.topic_introduction_count = {}
+        for d in earliest_docs:
+            for party in d["parties"]:
+                if party in self.topic_introduction_count:
+                    self.topic_introduction_count[party] += 1/len(d["parties"])
+                else:
+                    self.topic_introduction_count[party] = 1/len(d["parties"])
     
     def country_dict(self) -> dict:
-        return self.first_author_counts
+        return self.topic_introduction_count
 
     def figure_title(self) -> str:
         return "Working Paper Idea Introduction"
     
 if __name__ == "__main__":
-    TopicIntroduction()
+    print(TopicIntroduction().country_dict())

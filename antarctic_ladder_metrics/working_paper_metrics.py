@@ -10,7 +10,7 @@ class WorkingPaperAuthorship():
     def __init__(self) -> None:
         wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
         wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
-        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= 2000) & (wp_authorship_table["meeting_year"] <= 2024)]
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= START_YEAR) & (wp_authorship_table["meeting_year"] <= END_YEAR)]
         wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
 
         authors = list(wp_authorship_table["parties"].map(split_parties))
@@ -33,7 +33,7 @@ class WPCollaborationGraphCentrality():
     def __init__(self) -> None:
         wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
         wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
-        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= 2000) & (wp_authorship_table["meeting_year"] <= 2024)]
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= START_YEAR) & (wp_authorship_table["meeting_year"] <= END_YEAR)]
         wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
         
         author_sets = []
@@ -83,7 +83,41 @@ class WPCollaborationGraphCentrality():
 
     def figure_title(self) -> str:
         return "WP Collaboration Graph Centrality"
+    
+class WPCollaborationDiversity():
+    def __init__(self) -> None:
+        wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= START_YEAR) & (wp_authorship_table["meeting_year"] <= END_YEAR)]
+        wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
+        
+        author_sets = []
+
+        for row in wp_authorship_table.itertuples():
+            parties = row.parties
+            author_sets.append(split_parties(parties))
+        
+        collaborations = dict()
+        for s in author_sets:
+            for i in s:
+                for j in s:
+                    if i != j:
+                        if i not in collaborations:
+                            collaborations[i] = set([j])
+                        else:
+                            collaborations[i].add(j)
+
+        # Note this includes collaboration with agencies.
+        self.diversity = {k: len(v) for k, v in collaborations.items()}
+
+    def country_dict(self) -> dict:
+        return dict(self.diversity)
+
+    def figure_title(self) -> str:
+        return "WP Collaboration Graph Centrality"
+
 
 if __name__ == "__main__":
     WorkingPaperAuthorship()
     WPCollaborationGraphCentrality()
+    print(WPCollaborationDiversity().country_dict())

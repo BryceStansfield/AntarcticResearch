@@ -1,5 +1,7 @@
 import csv
 
+from antarctic_ladder_metrics.constants import *
+
 class ScarLeadershipFigures():
     def __init__(self):
         country_counts = {}
@@ -8,6 +10,9 @@ class ScarLeadershipFigures():
             reader = csv.reader(f)
             for i, row in enumerate(reader):
                 if i < 2:  # skip the two header rows
+                    continue
+                year = int(row[0])
+                if year < START_YEAR or year > END_YEAR:
                     continue
                 for cell in row[1:]:  # skip first column (Year)
                     if cell == "AustraliaFrance":

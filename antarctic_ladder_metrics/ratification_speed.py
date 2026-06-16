@@ -11,7 +11,7 @@ class RatificationSpeed():
         measures = pd.read_csv("data/MeasureCorpusEnriched.csv")
         measures = measures[(measures["Meeting_Type"] == "ATCM")
                             & (measures["ATCM_Year"] >= 1995)
-                            & (measures["ATCM_Year"] <= 2023)
+                            & (measures["ATCM_Year"] <= 2024)
                             & (measures["Type"] == "Measure")
                             & ~measures["Approvals"].str.contains("Fast Approval", na=False)
                             & (measures["Approvals"] != "")]
@@ -32,7 +32,7 @@ class RatificationSpeed():
         # All measures of form "... (year)", "Not yet effective", or Effective dd/mm/YYYY.
         def extract_end_year(status):
             if status == "Not yet effective":
-                return 2023
+                return 2024
             if "Effective" in status:
                 return int(status[-4:])
             if status.endswith(')'):

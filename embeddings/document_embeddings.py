@@ -168,8 +168,9 @@ class DocumentTextGetter():
         self.wp_ip_info = pandas.read_parquet("data/antarctic-db/processed/document-summary.parquet")
     
     def get_measure_representation(self, measure_id):
-        text_rep = get_representation_of_measure(self.measures_pd[self.measures_pd["Document_Number"] == measure_id].iloc[0])
-        return {"measure_id": measure_id, "text": text_rep}
+        measures_pd_row = self.measures_pd[self.measures_pd["Document_Number"] == measure_id].iloc[0]
+        text_rep = get_representation_of_measure(measures_pd_row)
+        return {"measure_id": measure_id, "text": text_rep, "year": measures_pd_row["Adoption_Year"]}
 
     def get_wp_ip_representation(self, document_uuid):
         document_file = pathlib.Path(self.wp_ip_map[document_uuid])
