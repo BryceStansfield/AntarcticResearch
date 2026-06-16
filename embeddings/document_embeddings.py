@@ -191,8 +191,10 @@ class DocumentTextGetter():
             return self.get_wp_ip_representation(document_uuid)
 
     def get_all_of_type(self, type: str, with_embeddings: bool = False):
-        document_uuids = [d[0] for d in get_embeddings_by_type(type)]
-        return [self.get_document_representation(d) for d in document_uuids]        
+        pairs = get_embeddings_by_type(type)
+        if with_embeddings:
+            return [{**self.get_document_representation(uuid), "uuid": uuid, "embedding": embedding} for uuid, embedding in pairs]
+        return [{**self.get_document_representation(uuid), "uuid": uuid} for uuid, _ in pairs]
 
 if __name__ == "__main__":
     print(DocumentTextGetter().get_all_of_type("WorkingPaper"))

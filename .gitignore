@@ -18,3 +18,5 @@ notes*
 data/antarctic-db/processed/wp_ip_file_locations.json
 .vscode*
 data/ladder_results.csv
+data/ordering_report.txt
+.gitignore
