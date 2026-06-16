@@ -8,6 +8,7 @@ from antarctic_ladder_metrics.scopus_figures import ScopusFigures
 from antarctic_ladder_metrics.ratification_speed import RatificationSpeed
 from antarctic_ladder_metrics.working_paper_metrics import WorkingPaperAuthorship, WPCollaborationGraphCentrality
 from antarctic_ladder_metrics.topic_introduction import TopicIntroduction
+from antarctic_ladder_metrics.measure_wp_introduction import MeasureWPIntroducers
 from downloaders.download_all import download_and_extract_all
 
 def aggregate_all_figures():
@@ -15,7 +16,7 @@ def aggregate_all_figures():
     
     # TODO: Make sure that all figures are over the same time period.
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
-    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), WPCollaborationGraphCentrality(), TopicIntroduction()]
+    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), WPCollaborationGraphCentrality(), TopicIntroduction(), MeasureWPIntroducers()]
     figure_dicts = [figure.country_dict() for figure in figures]
 
     # TODO: Next session, investigate gap between these figures and Parsas for Influence.

@@ -146,14 +146,14 @@ class EmbeddingLookerUpper():
         else:
             self.embeddings = get_all_embeddings(model_uuid)
         
-        self.nn = NearestNeighbors().fit([e[1] for e in self.embeddings])
+        self.nn = NearestNeighbors(metric='cosine').fit([e[1] for e in self.embeddings])
     
     def get_nearest_neighbours(self, document_uuid, n_neighbours=5, model_uuid: str = DEFAULT_EMBEDDING_MODEL):
         document_embedding = get_embedding(document_uuid, model_uuid)
 
         nearest_neighbours = self.nn.kneighbors([document_embedding], n_neighbors=n_neighbours)
         
-        return list(map(lambda i: self.embeddings[i][0],  nearest_neighbours[1][0]))
+        return list(zip(map(lambda i: self.embeddings[i][0],  nearest_neighbours[1][0]), nearest_neighbours[0][0]))
 
 def get_representation_of_measure(row):
     return f"Subject: {row.Subject}\n{row.Content}"

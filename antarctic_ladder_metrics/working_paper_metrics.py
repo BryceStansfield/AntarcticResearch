@@ -1,37 +1,46 @@
 import pandas as pd
 from collections import Counter
+from antarctic_ladder_metrics.constants import *
 
 import networkx
+
+from utils import split_parties
 
 class WorkingPaperAuthorship():
     def __init__(self) -> None:
         wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
-        wp_authorship_table = wp_authorship_table[wp_authorship_table["meeting_type"] == "ATCM"][["parties", "meeting_year"]]
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
         wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= 2000) & (wp_authorship_table["meeting_year"] <= 2024)]
-        wp_authorship_table["First Author"] = wp_authorship_table["parties"].map(lambda l: l[0])
+        wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
+
+        authors = list(wp_authorship_table["parties"].map(split_parties))
         
-        first_authors = list(wp_authorship_table["First Author"])
-        first_authors = list(map(lambda s: s.lower(), filter(lambda s: '|' not in s, first_authors)))     # Entries containing a | are sorted in alphabetical author and have no real first authorship information.
-        
-        self.first_authorships = Counter(first_authors)
-    
+        self.country_authorships = {}
+        for pl in authors:
+            for p in pl:
+                if p in self.country_authorships:
+                    self.country_authorships[p] += 1/len(pl)
+                else:
+                    self.country_authorships[p] = 1/len(pl)
+            
     def country_dict(self) -> dict:
-        return dict(self.first_authorships)
+        return dict(self.country_authorships)
 
     def figure_title(self) -> str:
-        return "Working Papers"
+        return "Working Paper Authorship"
 
 class WPCollaborationGraphCentrality():
     def __init__(self) -> None:
         wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
-        wp_authorship_table = wp_authorship_table[wp_authorship_table["meeting_type"] == "ATCM"][["parties", "meeting_year"]]
+        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
         wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= 2000) & (wp_authorship_table["meeting_year"] <= 2024)]
+        wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
         
         author_sets = []
 
         for row in wp_authorship_table.itertuples():
             parties = row.parties
-            author_sets.append([s.strip().lower() for p in parties for s in p.split('|')])
+            author_sets.append(split_parties(parties))
         
         party_set = set()
         for s in author_sets:
