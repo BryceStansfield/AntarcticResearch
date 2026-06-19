@@ -20,7 +20,6 @@ from xgboost import XGBClassifier
 from embeddings.document_embeddings import DocumentTextGetter
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
-from working_paper_authorship.torch_svm import RFFSVM
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -154,29 +153,11 @@ def build_models(pca_dims: list[int]) -> list[dict]:
         random_state=OPTUNA_RANDOM_STATE,
     )
 
-    # RFFSVM approximates the rbf kernel with random Fourier features and is natively
-    # multilabel and differentiable; included here to compare against the rbf SVC above.
-    differentiable_svm = OptunaSearchCV(
-        pipe(RFFSVM(random_state=RANDOM_STATE)),
-        param_distributions={
-            "pca__n_components": CategoricalDistribution(pca_dims),
-            "clf__C": FloatDistribution(1e-2, 1e2, log=True),
-            "clf__gamma": FloatDistribution(1e-3, 1e0, log=True),
-            "clf__n_features": CategoricalDistribution([256, 512, 1024]),
-        },
-        n_trials=N_OPTUNA_TRIALS,
-        scoring=neg_cross_entropy_scorer,
-        cv=CV_FOLDS,
-        n_jobs=-1,
-        random_state=OPTUNA_RANDOM_STATE,
-    )
-
     return [
         {"name": "Logistic Regression", "model": logistic},
         {"name": "Random Forest", "model": random_forest},
         {"name": "XGBoost", "model": xgboost},
         {"name": "SVM", "model": svm},
-        {"name": "Differentiable RFF-SVM", "model": differentiable_svm},
     ]
 
 
