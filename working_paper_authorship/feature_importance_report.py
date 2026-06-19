@@ -20,8 +20,7 @@ from working_paper_authorship import country_authorship_classifier as cc
 REPORT_PATH = pathlib.Path("data/EmbeddingFeatureReport.txt")
 TOP_COMPONENTS = 5
 TOP_SEGMENTS = 3
-SNIPPET_CHARS = 400
-PERMUTATION_REPEATS = 5
+SNIPPET_CHARS = 1000
 PERMUTATION_RANDOM_STATE = 99
 
 
@@ -47,10 +46,9 @@ def component_importances(pipeline, X_val, Y_val) -> tuple[np.ndarray, str]:
     result = permutation_importance(
         clf, transformed, Y_val,
         scoring=cc.neg_cross_entropy_scorer,
-        n_repeats=PERMUTATION_REPEATS,
         random_state=PERMUTATION_RANDOM_STATE,
     )
-    return result.importances_mean, f"permutation importance (mean Δ cross-entropy over {PERMUTATION_REPEATS} repeats)"
+    return result.importances_mean, f"permutation importance"
 
 
 def load_segment_embeddings() -> tuple[list[str], np.ndarray]:
@@ -108,7 +106,11 @@ def build_report() -> None:
         f"Working-paper segments projected: {len(uuids)}",
         f"Top components per model: {TOP_COMPONENTS} | extreme segments per component: {TOP_SEGMENTS}",
         "",
+        "PCA dimensions retained per model:",
     ]
+    for r in results["models"]:
+        lines.append(f"  {r['name']}: {r['model'].named_steps['pca'].n_components_}")
+    lines.append("")
 
     for r in results["models"]:
         name, pipeline = r["name"], r["model"]

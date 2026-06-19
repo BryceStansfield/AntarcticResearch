@@ -1,6 +1,5 @@
 import sys
 import pathlib
-import hashlib
 import pickle
 
 import numpy as np
@@ -21,14 +20,15 @@ from xgboost import XGBClassifier
 from embeddings.document_embeddings import DocumentTextGetter
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
+from working_paper_authorship.torch_svm import RFFSVM
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 RANDOM_STATE = 42
 VAL_TEST_SPLIT_RANDOM_STATE = 7
 OPTUNA_RANDOM_STATE = 1234
-CV_FOLDS = 5
-N_OPTUNA_TRIALS = 200
+CV_FOLDS = 3
+N_OPTUNA_TRIALS = 100
 
 COUNTRIES = ["Australia", "United Kingdom", "United States", "Norway", "Chile"]
 
@@ -126,7 +126,7 @@ def build_models(pca_dims: list[int]) -> list[dict]:
             "pca__n_components": CategoricalDistribution(pca_dims),
             "clf__learning_rate": FloatDistribution(1e-2, 3e-1, log=True),
             "clf__max_depth": IntDistribution(3, 10),
-            "clf__n_estimators": IntDistribution(100, 3000),
+            "clf__n_estimators": IntDistribution(100, 1000),
             "clf__subsample": FloatDistribution(0.5, 1.0),
         },
         n_trials=N_OPTUNA_TRIALS,
@@ -154,11 +154,29 @@ def build_models(pca_dims: list[int]) -> list[dict]:
         random_state=OPTUNA_RANDOM_STATE,
     )
 
+    # RFFSVM approximates the rbf kernel with random Fourier features and is natively
+    # multilabel and differentiable; included here to compare against the rbf SVC above.
+    differentiable_svm = OptunaSearchCV(
+        pipe(RFFSVM(random_state=RANDOM_STATE)),
+        param_distributions={
+            "pca__n_components": CategoricalDistribution(pca_dims),
+            "clf__C": FloatDistribution(1e-2, 1e2, log=True),
+            "clf__gamma": FloatDistribution(1e-3, 1e0, log=True),
+            "clf__n_features": CategoricalDistribution([256, 512, 1024]),
+        },
+        n_trials=N_OPTUNA_TRIALS,
+        scoring=neg_cross_entropy_scorer,
+        cv=CV_FOLDS,
+        n_jobs=-1,
+        random_state=OPTUNA_RANDOM_STATE,
+    )
+
     return [
         {"name": "Logistic Regression", "model": logistic},
         {"name": "Random Forest", "model": random_forest},
         {"name": "XGBoost", "model": xgboost},
         {"name": "SVM", "model": svm},
+        {"name": "Differentiable RFF-SVM", "model": differentiable_svm},
     ]
 
 
@@ -179,12 +197,6 @@ def build_dataset(docs: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         Y_rows.append([1 if c in matched else 0 for c in COUNTRIES])
 
     return np.array(X_rows, dtype=np.float32), np.array(Y_rows, dtype=np.int32)
-
-
-def source_hash() -> str:
-    """Quick, cheap content hash of this source file — used as the cache key so that
-    any change to the model definitions / search space invalidates cached results."""
-    return hashlib.md5(pathlib.Path(__file__).read_bytes()).hexdigest()[:12]
 
 
 def train_models(X_train, Y_train, X_val, Y_val, pca_dims) -> dict:
@@ -271,9 +283,8 @@ def pca_search_dims(n_train: int, n_features: int) -> list[int]:
 
 
 def get_or_train_results() -> dict:
-    """Return cached run results for the current source file, training (and caching)
-    them if no matching cache exists."""
-    cache_path = pathlib.Path("data") / f"models_{source_hash()}.pickle"
+    """Return cached run results, training (and caching) them if no cache exists."""
+    cache_path = pathlib.Path("data/authorship_models.pickle")
     if cache_path.exists():
         print(f"Loading cached results from {cache_path}")
         with open(cache_path, "rb") as f:
