@@ -1,8 +1,18 @@
-import sys
+"""Censored / chunked working-paper authorship benchmark.
+
+Fetches working papers and their authors, splits deterministically at the document
+level, builds censored + uncensored copies at several sentence-chunk granularities,
+embeds every chunk, then trains the classifier suite. Hyperparameters are searched once
+on the censored full-document set and reused (fixed) for every other dataset. Models,
+chosen hyperparameters and a validation report are written to
+data/author_classification_models/.
+"""
+import json
 import pathlib
 import pickle
 
 import numpy as np
+import pandas as pd
 import optuna
 from optuna.distributions import FloatDistribution, IntDistribution, CategoricalDistribution
 from optuna_integration import OptunaSearchCV
@@ -14,12 +24,15 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.decomposition import PCA
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import accuracy_score, log_loss
+from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
 from xgboost import XGBClassifier
 
-from embeddings.document_embeddings import DocumentTextGetter
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
+from sentence_splitter import split_sentences
+from embeddings.working_paper_censorship import get_working_paper_paths, censor_text
+from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding
+from embeddings.embed_all_documents import embed_document_set
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -30,6 +43,17 @@ CV_FOLDS = 3
 N_OPTUNA_TRIALS = 100
 
 COUNTRIES = ["Australia", "United Kingdom", "United States", "Norway", "Chile"]
+MODEL_NAMES = ["Logistic Regression", "Random Forest", "XGBoost", "SVM"]
+
+# Document granularities: "full" document, or fixed-size sentence chunks.
+CHUNK_SIZES = [1, 2, 4, 8, 16, 32, 64]
+GRANULARITIES = ["full"] + CHUNK_SIZES
+# SVM is O(n^2)-ish; only run it where the row count stays modest (big chunks / full doc).
+SVM_MIN_CHUNK = 32
+
+DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
+OUTPUT_DIR = pathlib.Path("data/author_classification_models")
+N_FEATURES = 4096
 
 _alias_to_canonical = CaseInsensitiveDict()
 for _country in COUNTRIES:
@@ -45,6 +69,8 @@ def parties_to_target_countries(parties) -> set[str]:
         if p in _alias_to_canonical
     }
 
+
+# --------------------------------------------------------------------------- metrics
 
 def positive_proba(estimator, X) -> np.ndarray:
     """Return P(label==1) as an (n_samples, n_labels) array, normalising over the
@@ -80,180 +106,272 @@ def neg_cross_entropy_scorer(estimator, X, y) -> float:
     return -mean_cross_entropy(y, positive_proba(estimator, X))
 
 
-def build_models(pca_dims: list[int]) -> list[dict]:
-    """Every model is a PCA -> classifier pipeline (steps named "pca" and "clf"),
-    hyperparameter-tuned with k-fold CV against cross-entropy. Native multilabel
-    classifiers are used where available (RandomForest, XGBoost); logistic regression
-    and SVM have no native multilabel support so they are wrapped in
-    MultiOutputClassifier."""
+# --------------------------------------------------------------------------- models
 
-    def pipe(clf) -> Pipeline:
-        return Pipeline([("pca", PCA(random_state=RANDOM_STATE)), ("clf", clf)])
+def _pipe(clf) -> Pipeline:
+    return Pipeline([("pca", PCA(random_state=RANDOM_STATE)), ("clf", clf)])
 
-    logistic = GridSearchCV(
-        pipe(MultiOutputClassifier(LogisticRegression(max_iter=1000, random_state=RANDOM_STATE))),
-        param_grid={
-            "pca__n_components": pca_dims,
-        },
-        scoring=neg_cross_entropy_scorer,
-        cv=CV_FOLDS,
-        n_jobs=-1,
-    )
 
-    random_forest = GridSearchCV(
-        pipe(RandomForestClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=-1)),
-        param_grid={
-            "pca__n_components": pca_dims,
-            "clf__max_depth": [None, 5, 10, 20],
-        },
-        scoring=neg_cross_entropy_scorer,
-        cv=CV_FOLDS,
-        n_jobs=-1,
-    )
+def base_pipeline(name: str) -> Pipeline:
+    """A fresh PCA -> classifier pipeline for the named model (untuned)."""
+    if name == "Logistic Regression":
+        return _pipe(MultiOutputClassifier(LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)))
+    if name == "Random Forest":
+        return _pipe(RandomForestClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=-1))
+    if name == "XGBoost":
+        return _pipe(XGBClassifier(
+            multi_strategy="multi_output_tree", tree_method="hist",
+            eval_metric="logloss", random_state=RANDOM_STATE, n_jobs=1,
+        ))
+    if name == "SVM":
+        return _pipe(MultiOutputClassifier(CalibratedClassifierCV(SVC(random_state=RANDOM_STATE), ensemble=False)))
+    raise ValueError(f"Unknown model: {name}")
 
-    # OptunaSearchCV runs Bayesian (TPE) hyperparameter optimisation while keeping the
-    # familiar sklearn fit / predict / best_params_ interface.
-    xgboost = OptunaSearchCV(
-        pipe(XGBClassifier(
-            multi_strategy="multi_output_tree",
-            tree_method="hist",
-            eval_metric="logloss",
-            random_state=RANDOM_STATE,
-            n_jobs=1,
-        )),
-        param_distributions={
+
+def make_search(name: str, pca_dims: list[int]):
+    """Wrap the base pipeline in its hyperparameter search (Grid for LR/RF, Optuna for
+    XGB/SVM), scored by cross-entropy."""
+    pipe = base_pipeline(name)
+    if name == "Logistic Regression":
+        return GridSearchCV(pipe, {"pca__n_components": pca_dims},
+                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=-1)
+    if name == "Random Forest":
+        return GridSearchCV(pipe, {"pca__n_components": pca_dims, "clf__max_depth": [None, 5, 10, 20]},
+                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=-1)
+    if name == "XGBoost":
+        return OptunaSearchCV(pipe, {
             "pca__n_components": CategoricalDistribution(pca_dims),
             "clf__learning_rate": FloatDistribution(1e-2, 3e-1, log=True),
             "clf__max_depth": IntDistribution(3, 10),
             "clf__n_estimators": IntDistribution(100, 1000),
             "clf__subsample": FloatDistribution(0.5, 1.0),
-        },
-        n_trials=N_OPTUNA_TRIALS,
-        scoring=neg_cross_entropy_scorer,
-        cv=CV_FOLDS,
-        n_jobs=-1,
-        random_state=OPTUNA_RANDOM_STATE,
-    )
-
-    # SVC has no native probability output; CalibratedClassifierCV (the sklearn-1.9+
-    # replacement for SVC(probability=True)) gives calibrated probabilities for the
-    # cross-entropy scorer, and MultiOutputClassifier extends it to multilabel.
-    svm = OptunaSearchCV(
-        pipe(MultiOutputClassifier(CalibratedClassifierCV(SVC(random_state=RANDOM_STATE), ensemble=False))),
-        param_distributions={
+        }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=CV_FOLDS,
+            n_jobs=-1, random_state=OPTUNA_RANDOM_STATE)
+    if name == "SVM":
+        return OptunaSearchCV(pipe, {
             "pca__n_components": CategoricalDistribution(pca_dims),
             "clf__estimator__estimator__C": FloatDistribution(1e-2, 1e2, log=True),
             "clf__estimator__estimator__gamma": FloatDistribution(1e-4, 1e0, log=True),
             "clf__estimator__estimator__kernel": CategoricalDistribution(["rbf"]),
-        },
-        n_trials=N_OPTUNA_TRIALS,
-        scoring=neg_cross_entropy_scorer,
-        cv=CV_FOLDS,
-        n_jobs=-1,
-        random_state=OPTUNA_RANDOM_STATE,
-    )
-
-    return [
-        {"name": "Logistic Regression", "model": logistic},
-        {"name": "Random Forest", "model": random_forest},
-        {"name": "XGBoost", "model": xgboost},
-        {"name": "SVM", "model": svm},
-    ]
+        }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=CV_FOLDS,
+            n_jobs=-1, random_state=OPTUNA_RANDOM_STATE)
+    raise ValueError(f"Unknown model: {name}")
 
 
-def build_dataset(docs: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    X_rows, Y_rows = [], []
+def make_fixed(name: str, best_params: dict, n_samples: int) -> Pipeline:
+    """Base pipeline with the persisted best params applied, clamping PCA components to
+    what this (possibly smaller) dataset can support."""
+    pipe = base_pipeline(name)
+    params = dict(best_params)
+    if "pca__n_components" in params:
+        params["pca__n_components"] = max(1, min(params["pca__n_components"], N_FEATURES, n_samples))
+    pipe.set_params(**params)
+    return pipe
 
-    for doc in docs:
-        parties = doc.get("parties")
-        embedding = doc.get("embedding")
-        if parties is None or embedding is None:
+
+# ----------------------------------------------------------------------------- data
+
+def _build_parties_lookup() -> dict[str, object]:
+    """Map a working paper's filename stem -> its `parties` list, from the ATCM WP rows
+    of the document-summary parquet (keyed on the paper_url basename stem)."""
+    df = pd.read_parquet(DOCUMENT_SUMMARY)
+    df = df[(df["meeting_type"] == "ATCM") & (df["party_type"] == "wp")]
+    lookup: dict[str, object] = {}
+    for row in df.itertuples():
+        if isinstance(row.paper_url, str):
+            lookup.setdefault(pathlib.Path(row.paper_url).stem, row.parties)
+    return lookup
+
+
+def load_working_papers() -> list[dict]:
+    """English working papers authored by >=1 target country, as {stem, text, label}."""
+    lookup = _build_parties_lookup()
+    records = []
+    for path in get_working_paper_paths():
+        parties = lookup.get(path.stem)
+        if parties is None:
+            # Filenames may carry a revision suffix the parquet stem omits (or vice versa).
+            parties = next((p for s, p in lookup.items() if s in path.stem or path.stem in s), None)
+        if parties is None or isinstance(parties, float):
             continue
-
         matched = parties_to_target_countries(parties)
         if not matched:
             continue
+        records.append({
+            "stem": path.stem,
+            "text": path.read_text(encoding="utf-8", errors="ignore"),
+            "label": np.array([1 if c in matched else 0 for c in COUNTRIES], dtype=np.int32),
+        })
+    return records
 
+
+def split_documents(records: list[dict]):
+    """70 / 15 / 15 train / val / test split at the document level (distinct seeds)."""
+    train, temp = train_test_split(records, test_size=0.30, random_state=RANDOM_STATE)
+    val, test = train_test_split(temp, test_size=0.50, random_state=VAL_TEST_SPLIT_RANDOM_STATE)
+    return train, val, test
+
+
+def granularity_label(granularity) -> str:
+    return "full" if granularity == "full" else f"chunk{granularity}"
+
+
+def _chunk_units(text: str, granularity, type_str: str) -> list[tuple]:
+    """(hash, type, chunk_text) units for one document at the given granularity. Full
+    docs use the whole text; sentence chunks group `granularity` sentences together.
+    Either way each chunk is passed through get_wp_ip_embedding_args, which re-splits
+    anything over the embedder's context window — a safety net in case the sentence
+    tokenizer ever emits a >32k-token "sentence"."""
+    if granularity == "full":
+        chunks = [text]
+    else:
+        sentences = split_sentences(text)
+        chunks = [" ".join(sentences[i:i + granularity]).strip()
+                  for i in range(0, len(sentences), granularity)]
+    units = []
+    for chunk in chunks:
+        if chunk:
+            units.extend((h, type_str, seg) for (h, _t, seg) in get_wp_ip_embedding_args(chunk, type_str))
+    return units
+
+
+def dataset_units(records: list[dict], censored: bool, granularity):
+    """Return (embed_units, hash_labels) for one (censored, granularity) dataset.
+
+    embed_units: list of (hash, type, text) to feed the embedder.
+    hash_labels: list of (hash, label) preserving the chunk -> document-label link."""
+    type_str = f"WPAuthorClf::{'cens' if censored else 'raw'}::{granularity_label(granularity)}"
+    embed_units, hash_labels = [], []
+    for rec in records:
+        text = censor_text(rec["text"]) if censored else rec["text"]
+        for h, t, chunk in _chunk_units(text, granularity, type_str):
+            embed_units.append((h, t, chunk))
+            hash_labels.append((h, rec["label"]))
+    return embed_units, hash_labels
+
+
+def assemble_xy(hash_labels: list[tuple]) -> tuple[np.ndarray, np.ndarray]:
+    """Read cached embeddings back and stack into (X, Y)."""
+    X_rows, Y_rows = [], []
+    for h, label in hash_labels:
+        embedding = get_embedding(h)
+        if embedding is None:
+            continue
         X_rows.append(embedding)
-        Y_rows.append([1 if c in matched else 0 for c in COUNTRIES])
-
+        Y_rows.append(label)
     return np.array(X_rows, dtype=np.float32), np.array(Y_rows, dtype=np.int32)
 
 
-def train_models(X_train, Y_train, X_val, Y_val, pca_dims) -> dict:
-    """Fit and validate every model, returning only the optimal refit estimator and its
-    chosen hyperparameters per model (not the full search/study). This is the expensive
-    work that gets cached."""
-    model_results = []
-    best_name, best_loss = None, float("inf")
+# -------------------------------------------------------------------- orchestration
 
-    for entry in build_models(pca_dims):
-        name, search = entry["name"], entry["model"]
-        print(f"\nFitting {name}...")
-        search.fit(X_train, Y_train)
-        model = search.best_estimator_  # discard the study / non-optimal candidates
-
-        Y_val_pred = model.predict(X_val)
-        Y_val_proba = positive_proba(model, X_val)
-        per_country = [float(accuracy_score(Y_val[:, i], Y_val_pred[:, i])) for i in range(len(COUNTRIES))]
-
-        model_results.append({
-            "name": name,
-            "model": model,
-            "best_params": search.best_params_,
-            "per_country": per_country,
-            "exact": float(accuracy_score(Y_val, Y_val_pred)),
-            "loss": mean_cross_entropy(Y_val, Y_val_proba),
-        })
-
-        if model_results[-1]["loss"] < best_loss:
-            best_loss, best_name = model_results[-1]["loss"], name
-
-    return {"models": model_results, "best_name": best_name, "best_loss": best_loss}
+def random_guess_baseline(val_records: list[dict]) -> tuple[float, list[float]]:
+    """No-skill BCE baseline: a predictor that outputs each class's validation base rate.
+    Returns (mean over classes, per-class). Per-class BCE equals that class's label
+    entropy, so the mean is the cross-entropy a prior-only random guess would achieve."""
+    labels = np.array([r["label"] for r in val_records])
+    base_rates = labels.mean(axis=0)
+    proba = np.tile(base_rates, (len(labels), 1))
+    per_class = [float(log_loss(labels[:, i], proba[:, i], labels=[0, 1])) for i in range(len(COUNTRIES))]
+    return float(np.mean(per_class)), per_class
 
 
-def print_results(results: dict) -> None:
-    for r in results["models"]:
-        print(f"\nValidation results ({r['name']}):")
-        if r["best_params"] is not None:
-            print(f"    Best CV params: {r['best_params']}")
-        for country, acc in zip(COUNTRIES, r["per_country"]):
-            print(f"    {country}: {acc:.4f}")
-        print(f"    Exact match: {r['exact']:.4f}")
-        print(f"    Cross-entropy loss: {r['loss']:.4f}")
-    print(f"\nBest model: {results['best_name']} (cross-entropy loss: {results['best_loss']:.4f})")
+def _svm_allowed(granularity) -> bool:
+    return granularity == "full" or (isinstance(granularity, int) and granularity >= SVM_MIN_CHUNK)
 
 
-def _best_model(results: dict):
-    return next(r["model"] for r in results["models"] if r["name"] == results["best_name"])
+def _model_slug(name: str) -> str:
+    return name.lower().replace(" ", "_")
 
 
-def load_data():
-    """Load the working-paper embedding dataset filtered to the target countries."""
-    print("Loading working paper embeddings...")
-    getter = DocumentTextGetter()
-    docs = getter.get_all_of_type("WorkingPaper", with_embeddings=True)
-    print(f"  Total working papers with embeddings: {len(docs)}")
-
-    print("Building dataset (filtering to target countries)...")
-    X, Y = build_dataset(docs)
-    print(f"  Papers after filtering: {X.shape[0]}")
-    print(f"  Embedding dimension:    {X.shape[1]}")
-    print("  Label counts per country:")
-    for i, country in enumerate(COUNTRIES):
-        print(f"    {country}: {int(Y[:, i].sum())}")
-    return X, Y
+def _sanitise(obj):
+    return obj.item() if hasattr(obj, "item") else obj
 
 
-def split_data(X, Y):
-    """70 / 15 / 15 train / validation / test split (distinct seeds per split)."""
-    X_train, X_temp, Y_train, Y_temp = train_test_split(
-        X, Y, test_size=0.30, random_state=RANDOM_STATE
-    )
-    X_val, X_test, Y_val, Y_test = train_test_split(
-        X_temp, Y_temp, test_size=0.50, random_state=VAL_TEST_SPLIT_RANDOM_STATE
-    )
-    return X_train, X_val, X_test, Y_train, Y_val, Y_test
+def _evaluate(model, X_val, Y_val) -> dict:
+    Y_pred = model.predict(X_val)
+    Y_proba = positive_proba(model, X_val)
+    return {
+        "per_country_recall": [float(recall_score(Y_val[:, i], Y_pred[:, i], zero_division=0)) for i in range(len(COUNTRIES))],
+        "per_country_precision": [float(precision_score(Y_val[:, i], Y_pred[:, i], zero_division=0)) for i in range(len(COUNTRIES))],
+        "exact": float(accuracy_score(Y_val, Y_pred)),
+        "loss": mean_cross_entropy(Y_val, Y_proba),
+    }
+
+
+def run_benchmark() -> list[dict]:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("Loading working papers + authors...")
+    records = load_working_papers()
+    train, val, test = split_documents(records)
+    print(f"  docs: {len(records)} (train {len(train)}, val {len(val)}, test {len(test)} [reserved])")
+
+    datasets = [(censored, gran) for censored in (True, False) for gran in GRANULARITIES]
+
+    # Collect every chunk across all datasets (train + val), dedupe, embed once.
+    print("Chunking + collecting embedding work...")
+    unique_units: dict[str, tuple] = {}
+    plans: dict[tuple, list] = {}
+    for censored, gran in datasets:
+        for split_name, recs in (("train", train), ("val", val), ("test", test)):
+            embed_units, hash_labels = dataset_units(recs, censored, gran)
+            for unit in embed_units:
+                unique_units.setdefault(unit[0], unit)
+            plans[(censored, gran, split_name)] = hash_labels
+    print(f"Embedding {len(unique_units)} unique chunks (cached ones are skipped)...")
+    embed_document_set(list(unique_units.values()))
+
+    # Step 5: search hyperparameters once on the censored full-document set. On rerun,
+    # reuse the persisted search instead of repeating it.
+    hp_path = OUTPUT_DIR / "best_hyperparameters.json"
+    if hp_path.exists():
+        print(f"\nLoading cached hyperparameters from {hp_path} (skipping search)...")
+        best_params = json.loads(hp_path.read_text())
+    else:
+        Xc_train, Yc_train = assemble_xy(plans[(True, "full", "train")])
+        pca_dims = pca_search_dims(len(Xc_train), N_FEATURES)
+        print(f"\nSearching hyperparameters on censored full docs "
+              f"(n_train={len(Xc_train)}, pca_dims={pca_dims})...")
+        best_params = {}
+        for name in MODEL_NAMES:
+            print(f"  searching {name}...")
+            search = make_search(name, pca_dims)
+            search.fit(Xc_train, Yc_train)
+            best_params[name] = {k: _sanitise(v) for k, v in search.best_params_.items()}
+        hp_path.write_text(json.dumps(best_params, indent=2))
+
+    # Step 6: for every (dataset, model), reuse the saved model if it exists (rerun),
+    # otherwise fit it with the fixed hyperparameters and persist it. Validation
+    # statistics are recomputed either way.
+    results = []
+    for censored, gran in datasets:
+        tag = f"{'cens' if censored else 'raw'}/{granularity_label(gran)}"
+        X_val, Y_val = assemble_xy(plans[(censored, gran, "val")])
+        X_train = Y_train = None  # assembled lazily, only when a model needs fitting
+        print(f"\nDataset {tag}: val {X_val.shape}")
+        for name in MODEL_NAMES:
+            if name == "SVM" and not _svm_allowed(gran):
+                continue
+            slug = f"{_model_slug(name)}__{'cens' if censored else 'raw'}__{granularity_label(gran)}"
+            pickle_path = OUTPUT_DIR / f"{slug}.pickle"
+            if pickle_path.exists():
+                with open(pickle_path, "rb") as f:
+                    model = pickle.load(f)
+            else:
+                if X_train is None:
+                    X_train, Y_train = assemble_xy(plans[(censored, gran, "train")])
+                model = make_fixed(name, best_params[name], X_train.shape[0])
+                model.fit(X_train, Y_train)
+                with open(pickle_path, "wb") as f:
+                    pickle.dump(model, f)
+
+            metrics = _evaluate(model, X_val, Y_val)
+            results.append({"model": name, "censored": censored, "granularity": gran, **metrics})
+            print(f"  {name:20s} loss={metrics['loss']:.4f} exact={metrics['exact']:.4f}")
+
+    baseline_avg, baseline_per_class = random_guess_baseline(val)
+    write_report(results, baseline_avg, baseline_per_class)
+    return results
 
 
 def pca_search_dims(n_train: int, n_features: int) -> list[int]:
@@ -263,33 +381,29 @@ def pca_search_dims(n_train: int, n_features: int) -> list[int]:
     return [d for d in (2 ** i for i in range(13)) if d <= max_components]
 
 
-def get_or_train_results() -> dict:
-    """Return cached run results, training (and caching) them if no cache exists."""
-    cache_path = pathlib.Path("data/authorship_models.pickle")
-    if cache_path.exists():
-        print(f"Loading cached results from {cache_path}")
-        with open(cache_path, "rb") as f:
-            return pickle.load(f)
-
-    X, Y = load_data()
-    X_train, X_val, X_test, Y_train, Y_val, Y_test = split_data(X, Y)
-    print(f"\nSplit sizes — train: {len(X_train)}, val: {len(X_val)}, test: {len(X_test)}")
-
-    pca_dims = pca_search_dims(len(X_train), X_train.shape[1])
-    print(f"PCA dimensions searched: {pca_dims}")
-
-    results = train_models(X_train, Y_train, X_val, Y_val, pca_dims)
-
-    with open(cache_path, "wb") as f:
-        pickle.dump(results, f)
-    print(f"\nCached results to {cache_path}")
-    return results
+def write_report(results: list[dict], baseline_avg: float, baseline_per_class: list[float]) -> None:
+    baseline_cols = " ".join(f"{b:.2f}" for b in baseline_per_class)
+    lines = ["WORKING PAPER AUTHORSHIP — CENSORED / CHUNKED BENCHMARK",
+             f"Countries: {', '.join(COUNTRIES)}",
+             "Metrics on the validation set (cross-entropy lower is better).",
+             f"Random-guess BCE baseline (predict each class's base rate): {baseline_avg:.4f}  per-class[{baseline_cols}]",
+             f"Per-country recall / precision order: {', '.join(COUNTRIES)}",
+             "",
+             f"{'model':20s} {'cens':5s} {'gran':7s} {'x-entropy':>10s} {'exact':>7s}  per-country recall / precision"]
+    for r in sorted(results, key=lambda r: (r["model"], not r["censored"], str(r["granularity"]))):
+        rec = " ".join(f"{x:.2f}" for x in r["per_country_recall"])
+        prec = " ".join(f"{p:.2f}" for p in r["per_country_precision"])
+        lines.append(f"{r['model']:20s} {'yes' if r['censored'] else 'no':5s} "
+                     f"{granularity_label(r['granularity']):7s} {r['loss']:10.4f} {r['exact']:7.4f}  "
+                     f"rec[{rec}] prec[{prec}]")
+    report = "\n".join(lines)
+    (OUTPUT_DIR / "report.txt").write_text(report)
+    print("\n" + report)
+    print(f"\nWrote report + {len(results)} models + best_hyperparameters.json to {OUTPUT_DIR}/")
 
 
 def main():
-    results = get_or_train_results()
-    print_results(results)
-    return _best_model(results)
+    run_benchmark()
 
 
 if __name__ == "__main__":

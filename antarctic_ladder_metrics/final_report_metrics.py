@@ -5,13 +5,12 @@ import random
 import re
 import time
 import unicodedata
-import nltk
 import openai
 import downloaders.scrape_final_reports as scrape_final_reports
 import json
 import secret_management
 from thefuzz import fuzz
-from nltk.tokenize import sent_tokenize
+from sentence_splitter import split_sentences
 import pathlib
 import conversions
 from antarctic_ladder_metrics.constants import *
@@ -364,13 +363,12 @@ class FinalReportBaker:
         for pdf in pdf_to_atcm_year:
             pdf_to_atcm_year[pdf] = conversions.actm_meeting_to_year(pdf_to_atcm_year[pdf])
 
-        nltk.download('punkt_tab')
         ocrd_reports = get_ocrd_final_reports()
 
         to_parse = []
         for base_name in ocrd_reports:
             report_text = ocrd_reports[base_name]
-            sentences = sent_tokenize(report_text)
+            sentences = split_sentences(report_text)
 
             for i, chunk in enumerate(sentences):
                 if not check_document_exists(base_name, i):
