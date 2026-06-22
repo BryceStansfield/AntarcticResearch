@@ -2,7 +2,6 @@
 import numpy as np
 from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
-from collections import Counter
 
 import embeddings.document_embeddings as document_embeddings
 

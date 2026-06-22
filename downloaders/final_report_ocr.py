@@ -1,7 +1,6 @@
 from paddleocr import PaddleOCR
 import pymupdf
 import numpy as np
-from matplotlib import pyplot as plt
 from PIL import Image, ImageDraw
 import pathlib
 import multiprocessing

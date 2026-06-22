@@ -1,7 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import time
 
 def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
     data = pd.DataFrame(columns=['Document_Number', 'Subject', 'Status', 'Category', 'Topics', 'Title', 'Content', 'Approvals'])

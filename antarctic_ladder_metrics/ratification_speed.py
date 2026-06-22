@@ -1,7 +1,5 @@
-import requests
 from ACTM_Measure_Scraper.src.Pipeline import scrape_and_enrich_measures
 import pandas as pd
-import datetime
 import country_meta_info
 
 class RatificationSpeed():

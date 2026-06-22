@@ -1,5 +1,4 @@
 import pandas as pd
-from collections import Counter
 from antarctic_ladder_metrics.constants import *
 
 import networkx

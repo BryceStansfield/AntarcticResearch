@@ -29,8 +29,8 @@ from xgboost import XGBClassifier
 
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
-from sentence_splitter import split_sentences
-from embeddings.working_paper_censorship import get_working_paper_paths, censor_text
+from sentence_splitter import chunk_sentences
+from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text
 from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding
 from embeddings.embed_all_documents import embed_document_set
 
@@ -49,7 +49,12 @@ MODEL_NAMES = ["Logistic Regression", "Random Forest", "XGBoost", "SVM"]
 CHUNK_SIZES = [1, 2, 4, 8, 16, 32, 64]
 GRANULARITIES = ["full"] + CHUNK_SIZES
 # SVM is O(n^2)-ish; only run it where the row count stays modest (big chunks / full doc).
-SVM_MIN_CHUNK = 32
+SVM_MIN_CHUNK = 16
+
+# Censorship variants applied to each document's text before chunking/embedding.
+CENSORSHIP_METHODS = ["raw", "naive", "llm_censorship"]
+# Hyperparameters are searched once on the full documents of this censorship method.
+SEARCH_METHOD = "naive"
 
 DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
 OUTPUT_DIR = pathlib.Path("data/author_classification_models")
@@ -222,12 +227,7 @@ def _chunk_units(text: str, granularity, type_str: str) -> list[tuple]:
     Either way each chunk is passed through get_wp_ip_embedding_args, which re-splits
     anything over the embedder's context window — a safety net in case the sentence
     tokenizer ever emits a >32k-token "sentence"."""
-    if granularity == "full":
-        chunks = [text]
-    else:
-        sentences = split_sentences(text)
-        chunks = [" ".join(sentences[i:i + granularity]).strip()
-                  for i in range(0, len(sentences), granularity)]
+    chunks = [text] if granularity == "full" else chunk_sentences(text, granularity)
     units = []
     for chunk in chunks:
         if chunk:
@@ -235,15 +235,25 @@ def _chunk_units(text: str, granularity, type_str: str) -> list[tuple]:
     return units
 
 
-def dataset_units(records: list[dict], censored: bool, granularity):
-    """Return (embed_units, hash_labels) for one (censored, granularity) dataset.
+def _apply_censorship(text: str, method: str) -> str:
+    if method == "raw":
+        return text
+    if method == "naive":
+        return censor_text(text)
+    if method == "llm_censorship":
+        return llm_censor_text(text)
+    raise ValueError(f"Unknown censorship method: {method}")
+
+
+def dataset_units(records: list[dict], method: str, granularity):
+    """Return (embed_units, hash_labels) for one (censorship method, granularity) dataset.
 
     embed_units: list of (hash, type, text) to feed the embedder.
     hash_labels: list of (hash, label) preserving the chunk -> document-label link."""
-    type_str = f"WPAuthorClf::{'cens' if censored else 'raw'}::{granularity_label(granularity)}"
+    type_str = f"WPAuthorClf::{method}::{granularity_label(granularity)}"
     embed_units, hash_labels = [], []
     for rec in records:
-        text = censor_text(rec["text"]) if censored else rec["text"]
+        text = _apply_censorship(rec["text"], method)
         for h, t, chunk in _chunk_units(text, granularity, type_str):
             embed_units.append((h, t, chunk))
             hash_labels.append((h, rec["label"]))
@@ -306,31 +316,31 @@ def run_benchmark() -> list[dict]:
     train, val, test = split_documents(records)
     print(f"  docs: {len(records)} (train {len(train)}, val {len(val)}, test {len(test)} [reserved])")
 
-    datasets = [(censored, gran) for censored in (True, False) for gran in GRANULARITIES]
+    datasets = [(method, gran) for method in CENSORSHIP_METHODS for gran in GRANULARITIES]
 
-    # Collect every chunk across all datasets (train + val), dedupe, embed once.
+    # Collect every chunk across all datasets (train + val + test), dedupe, embed once.
     print("Chunking + collecting embedding work...")
     unique_units: dict[str, tuple] = {}
     plans: dict[tuple, list] = {}
-    for censored, gran in datasets:
+    for method, gran in datasets:
         for split_name, recs in (("train", train), ("val", val), ("test", test)):
-            embed_units, hash_labels = dataset_units(recs, censored, gran)
+            embed_units, hash_labels = dataset_units(recs, method, gran)
             for unit in embed_units:
                 unique_units.setdefault(unit[0], unit)
-            plans[(censored, gran, split_name)] = hash_labels
+            plans[(method, gran, split_name)] = hash_labels
     print(f"Embedding {len(unique_units)} unique chunks (cached ones are skipped)...")
     embed_document_set(list(unique_units.values()))
 
-    # Step 5: search hyperparameters once on the censored full-document set. On rerun,
+    # Step 5: search hyperparameters once on the SEARCH_METHOD full-document set. On rerun,
     # reuse the persisted search instead of repeating it.
     hp_path = OUTPUT_DIR / "best_hyperparameters.json"
     if hp_path.exists():
         print(f"\nLoading cached hyperparameters from {hp_path} (skipping search)...")
         best_params = json.loads(hp_path.read_text())
     else:
-        Xc_train, Yc_train = assemble_xy(plans[(True, "full", "train")])
+        Xc_train, Yc_train = assemble_xy(plans[(SEARCH_METHOD, "full", "train")])
         pca_dims = pca_search_dims(len(Xc_train), N_FEATURES)
-        print(f"\nSearching hyperparameters on censored full docs "
+        print(f"\nSearching hyperparameters on {SEARCH_METHOD} full docs "
               f"(n_train={len(Xc_train)}, pca_dims={pca_dims})...")
         best_params = {}
         for name in MODEL_NAMES:
@@ -344,29 +354,29 @@ def run_benchmark() -> list[dict]:
     # otherwise fit it with the fixed hyperparameters and persist it. Validation
     # statistics are recomputed either way.
     results = []
-    for censored, gran in datasets:
-        tag = f"{'cens' if censored else 'raw'}/{granularity_label(gran)}"
-        X_val, Y_val = assemble_xy(plans[(censored, gran, "val")])
+    for method, gran in datasets:
+        tag = f"{method}/{granularity_label(gran)}"
+        X_val, Y_val = assemble_xy(plans[(method, gran, "val")])
         X_train = Y_train = None  # assembled lazily, only when a model needs fitting
         print(f"\nDataset {tag}: val {X_val.shape}")
         for name in MODEL_NAMES:
             if name == "SVM" and not _svm_allowed(gran):
                 continue
-            slug = f"{_model_slug(name)}__{'cens' if censored else 'raw'}__{granularity_label(gran)}"
+            slug = f"{_model_slug(name)}__{method}__{granularity_label(gran)}"
             pickle_path = OUTPUT_DIR / f"{slug}.pickle"
             if pickle_path.exists():
                 with open(pickle_path, "rb") as f:
                     model = pickle.load(f)
             else:
                 if X_train is None:
-                    X_train, Y_train = assemble_xy(plans[(censored, gran, "train")])
+                    X_train, Y_train = assemble_xy(plans[(method, gran, "train")])
                 model = make_fixed(name, best_params[name], X_train.shape[0])
                 model.fit(X_train, Y_train)
                 with open(pickle_path, "wb") as f:
                     pickle.dump(model, f)
 
             metrics = _evaluate(model, X_val, Y_val)
-            results.append({"model": name, "censored": censored, "granularity": gran, **metrics})
+            results.append({"model": name, "method": method, "granularity": gran, **metrics})
             print(f"  {name:20s} loss={metrics['loss']:.4f} exact={metrics['exact']:.4f}")
 
     baseline_avg, baseline_per_class = random_guess_baseline(val)
@@ -389,11 +399,11 @@ def write_report(results: list[dict], baseline_avg: float, baseline_per_class: l
              f"Random-guess BCE baseline (predict each class's base rate): {baseline_avg:.4f}  per-class[{baseline_cols}]",
              f"Per-country recall / precision order: {', '.join(COUNTRIES)}",
              "",
-             f"{'model':20s} {'cens':5s} {'gran':7s} {'x-entropy':>10s} {'exact':>7s}  per-country recall / precision"]
-    for r in sorted(results, key=lambda r: (r["model"], not r["censored"], str(r["granularity"]))):
+             f"{'model':20s} {'method':15s} {'gran':7s} {'x-entropy':>10s} {'exact':>7s}  per-country recall / precision"]
+    for r in sorted(results, key=lambda r: (r["model"], CENSORSHIP_METHODS.index(r["method"]), str(r["granularity"]))):
         rec = " ".join(f"{x:.2f}" for x in r["per_country_recall"])
         prec = " ".join(f"{p:.2f}" for p in r["per_country_precision"])
-        lines.append(f"{r['model']:20s} {'yes' if r['censored'] else 'no':5s} "
+        lines.append(f"{r['model']:20s} {r['method']:15s} "
                      f"{granularity_label(r['granularity']):7s} {r['loss']:10.4f} {r['exact']:7.4f}  "
                      f"rec[{rec}] prec[{prec}]")
     report = "\n".join(lines)

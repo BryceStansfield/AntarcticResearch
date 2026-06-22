@@ -1,7 +1,6 @@
 import pandas as pd
 import pathlib
 from collections import defaultdict
-import country_meta_info
 
 class FacilityFigures:
     def __init__(self) -> None:

@@ -6,7 +6,6 @@ import sqlite3
 import openai
 import secret_management
 import pandas
-import multiprocessing
 from sklearn.neighbors import NearestNeighbors
 from transformers import AutoTokenizer
 import hashlib
