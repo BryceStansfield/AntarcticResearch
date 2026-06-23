@@ -23,3 +23,4 @@ data/ordering_report.txt
 data/EmbeddingFeatureReport.txt
 data/authorship_models.pickle
 data/working_paper_country_mentions.txt
+data/finetuning/

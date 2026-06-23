@@ -30,7 +30,7 @@ from xgboost import XGBClassifier
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
 from sentence_splitter import chunk_sentences
-from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text
+from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text, author_for_stem
 from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding
 from embeddings.embed_all_documents import embed_document_set
 
@@ -189,7 +189,10 @@ def _build_parties_lookup() -> dict[str, object]:
 
 
 def load_working_papers() -> list[dict]:
-    """English working papers authored by >=1 target country, as {stem, text, label}."""
+    """English working papers authored by >=1 target country, as {stem, text, label, author}.
+
+    ``author`` is the paper's full party string (used to give the LLM censor the known
+    authoring party), sourced from the same lookup the censor uses so cache keys line up."""
     lookup = _build_parties_lookup()
     records = []
     for path in get_working_paper_paths():
@@ -206,6 +209,7 @@ def load_working_papers() -> list[dict]:
             "stem": path.stem,
             "text": path.read_text(encoding="utf-8", errors="ignore"),
             "label": np.array([1 if c in matched else 0 for c in COUNTRIES], dtype=np.int32),
+            "author": author_for_stem(path.stem) or ", ".join(str(p) for p in parties),
         })
     return records
 
@@ -235,13 +239,14 @@ def _chunk_units(text: str, granularity, type_str: str) -> list[tuple]:
     return units
 
 
-def _apply_censorship(text: str, method: str) -> str:
+def _apply_censorship(record: dict, method: str) -> str:
+    text = record["text"]
     if method == "raw":
         return text
     if method == "naive":
         return censor_text(text)
     if method == "llm_censorship":
-        return llm_censor_text(text)
+        return llm_censor_text(text, record["author"])
     raise ValueError(f"Unknown censorship method: {method}")
 
 
@@ -253,7 +258,7 @@ def dataset_units(records: list[dict], method: str, granularity):
     type_str = f"WPAuthorClf::{method}::{granularity_label(granularity)}"
     embed_units, hash_labels = [], []
     for rec in records:
-        text = _apply_censorship(rec["text"], method)
+        text = _apply_censorship(rec, method)
         for h, t, chunk in _chunk_units(text, granularity, type_str):
             embed_units.append((h, t, chunk))
             hash_labels.append((h, rec["label"]))
