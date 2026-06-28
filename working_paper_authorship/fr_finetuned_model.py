@@ -38,7 +38,7 @@ PARAMS = {
 
     # model / tokenisation
     "model_checkpoint": "Qwen/Qwen3-8B",  # dense 8B; full FT fits one H200
-    "max_length": 2048,               # tokens; longer papers are truncated
+    "max_length": 32000,               # tokens; longer papers are truncated
 
     # optimisation
     "learning_rate": 1e-5,
