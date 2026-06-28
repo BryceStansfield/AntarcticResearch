@@ -12,6 +12,10 @@ Edit PARAMS below and run:  python -m working_paper_authorship.fr_finetuned_mode
 """
 import os
 
+# Use the expandable-segments allocator so transient long-sequence batches don't OOM the
+# GPU through fragmentation (must be set before torch initialises its CUDA allocator).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import numpy as np
 from datasets import DatasetDict, concatenate_datasets
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
@@ -46,9 +50,12 @@ PARAMS = {
     # state from ~96 GB to ~48 GB, leaving comfortable activation headroom for full FT.
     "optim": "adamw_bnb_8bit",
     "num_train_epochs": 50,
-    "per_device_train_batch_size": 4,
-    "per_device_eval_batch_size": 8,
-    "gradient_accumulation_steps": 4,
+    # batch size 1: at max_length=32000 a batch of long papers OOMs an H200, since the
+    # collator pads each batch to its longest member. grad-accum keeps the effective batch
+    # (1 x 16 = 16, same as the old 4 x 4) and the optimiser-step count unchanged.
+    "per_device_train_batch_size": 1,
+    "per_device_eval_batch_size": 2,
+    "gradient_accumulation_steps": 16,
     "weight_decay": 0.01,
     "warmup_ratio": 0.05,
     "max_grad_norm": 1.0,
