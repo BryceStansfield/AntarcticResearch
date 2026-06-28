@@ -120,21 +120,40 @@ except Exception:
 # Copy one remote dir to storage and WAIT for it to actually finish before the caller destroys
 # us. The copy is async; on the SENDER side status_msg cycles "Copying container data..." ->
 # "<bytes> <pct> <rate>" -> "Done copying" (empirically the reliable completion signal — the
-# receiver side just sticks on "Receiving copy..."). We poll for "Done copying", and retry the
-# whole copy if it never reports done (the async copy sometimes silently no-ops).
+# receiver side just sticks on "Receiving copy...").
+#
+# CRITICAL: status updates lag ~30s, and a PREVIOUS copy leaves a stale "Done copying" sitting on
+# the status line. So we can't just poll for "Done copying" — the small logs copy's leftover
+# "Done copying" would make the big models copy "complete" instantly and we'd destroy mid-transfer
+# (this is exactly how a run shipped config.json but no .safetensors). Fix: if the status is
+# ALREADY "Done copying" when we fire (stale), require seeing an in-progress status first before we
+# trust the next "Done copying" as ours. Plus stall-detection on the byte counter so a hung copy
+# bails fast instead of burning the whole budget.
 _copy_to_storage() {  # $1=remote src dir  $2=storage dest parent  $3=label for logging
   src="$1"; dest="$2"; what="$3"
   for attempt in 1 2 3; do
     echo "$what copy attempt $attempt -> storage..."
+    case "$(status_msg)" in *"Done copying"*) require_start=1;; *) require_start=0;; esac
     vastai copy "$SELF_ID:$src" "$STORAGE_ID:$dest" --api-key "$VAST_API_KEY" || true
-    sleep 15  # let the fresh copy take over status_msg (don't match a stale 'Done copying')
-    for _ in $(seq 1 90); do   # up to ~15 min per attempt
+    started=0; last_bytes=-1; stalls=0
+    for _ in $(seq 1 240); do   # up to ~60 min per attempt (big model payloads are slow)
       msg="$(status_msg)"
       echo "  status_msg: $msg"
-      case "$msg" in *"Done copying"*) echo "$what copy complete"; return 0;; esac
-      sleep 10
+      case "$msg" in *"Copying container data"*|*[0-9]"%"*) started=1;; esac
+      case "$msg" in
+        *"Done copying"*)
+          if [ "$require_start" = 0 ] || [ "$started" = 1 ]; then
+            echo "$what copy complete"; return 0
+          fi ;;
+        *"Error"*) echo "  copy reported an error; retrying"; break;;
+      esac
+      bytes="$(printf '%s' "$msg" | grep -oE '^[0-9]+' || true)"; bytes="${bytes:--1}"
+      if [ "$bytes" = "$last_bytes" ]; then stalls=$((stalls + 1)); else stalls=0; fi
+      [ "$started" = 1 ] && [ "$stalls" -ge 10 ] && { echo "  copy stalled at ${bytes}b; retrying"; break; }
+      last_bytes="$bytes"
+      sleep 15
     done
-    echo "  no 'Done copying' after attempt $attempt; retrying"
+    echo "  $what not confirmed on attempt $attempt; retrying"
   done
   echo "WARNING: $what copy never confirmed 'Done copying' — $what may be incomplete on storage"
   return 1
