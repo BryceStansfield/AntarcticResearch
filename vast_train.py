@@ -117,29 +117,58 @@ except Exception:
 " 2>/dev/null || true
 }
 
-# Push results to storage and WAIT for the copy to actually finish before the caller destroys
+# Copy one remote dir to storage and WAIT for it to actually finish before the caller destroys
 # us. The copy is async; on the SENDER side status_msg cycles "Copying container data..." ->
 # "<bytes> <pct> <rate>" -> "Done copying" (empirically the reliable completion signal — the
 # receiver side just sticks on "Receiving copy..."). We poll for "Done copying", and retry the
-# whole copy if it never reports done (the async copy sometimes silently no-ops). run.log is
-# staged into the results dir so the single copy captures it too.
-copy_results() {
-  [ -z "${SELF_ID:-}" ] && { echo "no self id; cannot copy results"; return; }
-  cp -f WORKDIR_PLACEHOLDER/run.log WORKDIR_PLACEHOLDER/repo/data/finetuning/run.log 2>/dev/null || true
+# whole copy if it never reports done (the async copy sometimes silently no-ops).
+_copy_to_storage() {  # $1=remote src dir  $2=storage dest parent  $3=label for logging
+  src="$1"; dest="$2"; what="$3"
   for attempt in 1 2 3; do
-    echo "results copy attempt $attempt -> storage..."
-    vastai copy "$SELF_ID:WORKDIR_PLACEHOLDER/repo/data/finetuning" \
-                "$STORAGE_ID:$REMOTE_RESULTS_DIR/$RUN_LABEL" --api-key "$VAST_API_KEY" || true
+    echo "$what copy attempt $attempt -> storage..."
+    vastai copy "$SELF_ID:$src" "$STORAGE_ID:$dest" --api-key "$VAST_API_KEY" || true
     sleep 15  # let the fresh copy take over status_msg (don't match a stale 'Done copying')
     for _ in $(seq 1 90); do   # up to ~15 min per attempt
       msg="$(status_msg)"
       echo "  status_msg: $msg"
-      case "$msg" in *"Done copying"*) echo "results copy complete"; return;; esac
+      case "$msg" in *"Done copying"*) echo "$what copy complete"; return 0;; esac
       sleep 10
     done
     echo "  no 'Done copying' after attempt $attempt; retrying"
   done
-  echo "WARNING: results copy never confirmed 'Done copying' — results may be incomplete on storage"
+  echo "WARNING: $what copy never confirmed 'Done copying' — $what may be incomplete on storage"
+  return 1
+}
+
+# Push results to storage in two phases so a failure of the bulky model copy never costs us the
+# diagnostics. Phase 1 = run.log + test reports (tiny), copied FIRST on their own. Phase 2 = the
+# trained models, but ONLY each granularity's best/ dir (weights, no optimiser state) — never the
+# dataset (already on storage) nor the intermediate save_total_limit checkpoints. We hardlink
+# (cp -al, same filesystem) into the stage so models aren't duplicated on disk.
+copy_results() {
+  [ -z "${SELF_ID:-}" ] && { echo "no self id; cannot copy results"; return; }
+  REPO_DATA="WORKDIR_PLACEHOLDER/repo/data/finetuning"
+  STAGE="WORKDIR_PLACEHOLDER/_results_stage"
+  rm -rf "$STAGE"; mkdir -p "$STAGE/logs" "$STAGE/models"
+
+  # Phase 1 — diagnostics first (run.log always exists; reports only if the run finished).
+  cp -f WORKDIR_PLACEHOLDER/run.log "$STAGE/logs/run.log" 2>/dev/null || true
+  find "$REPO_DATA" -maxdepth 1 -name 'test_report_*.txt' -exec cp -f {} "$STAGE/logs/" \; 2>/dev/null || true
+  _copy_to_storage "$STAGE/logs" "$REMOTE_RESULTS_DIR/$RUN_LABEL" "logs"
+
+  # Phase 2 — best model per (granularity, method), tagged so the layout is flat under models/.
+  found=0
+  while IFS= read -r best; do
+    md="$(dirname "$(dirname "$best")")"          # .../{gran}/{method}  (best is in .../checkpoints/best)
+    tag="$(basename "$(dirname "$md")")__$(basename "$md")"   # e.g. full__llm_censorship
+    cp -al "$best" "$STAGE/models/$tag" 2>/dev/null || cp -r "$best" "$STAGE/models/$tag"
+    found=1
+  done < <(find "$REPO_DATA" -type d -name best)
+  if [ "$found" = 1 ]; then
+    _copy_to_storage "$STAGE/models" "$REMOTE_RESULTS_DIR/$RUN_LABEL" "models"
+  else
+    echo "no best/ model dirs found to copy (run likely died before saving any)"
+  fi
 }
 
 cleanup() {

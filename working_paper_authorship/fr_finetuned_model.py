@@ -4,9 +4,9 @@ Trains one model per granularity for the chosen ``PARAMS["method"]`` censorship 
 from ``prepare_data_for_finetuning``. The prepared train + validation splits are merged
 into the training pool (the validation split is not held out for LLM training), and a slice
 of that pool is carved off for early stopping. Final metrics are reported on the reserved
-``test`` split, written to ``OUTPUT_DIR/test_report_{method}.txt``. Checkpoints are written,
-at a step cadence, next to the dataset dumps under
-``data/finetuning/{granularity}/{method}/checkpoints``.
+``test`` split, written to ``OUTPUT_DIR/test_report_{method}.txt``. Step-cadence checkpoints are
+written during training (so the best can be reloaded at the end) but pruned immediately after,
+leaving only the final model under ``data/finetuning/{granularity}/{method}/checkpoints/best``.
 
 Edit PARAMS below and run:  python -m working_paper_authorship.fr_finetuned_model
 """
@@ -15,6 +15,9 @@ import os
 # Use the expandable-segments allocator so transient long-sequence batches don't OOM the
 # GPU through fragmentation (must be set before torch initialises its CUDA allocator).
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+import glob
+import shutil
 
 import numpy as np
 from datasets import DatasetDict, concatenate_datasets
@@ -113,6 +116,16 @@ def checkpoint_dir(granularity) -> str:
     return str(OUTPUT_DIR / granularity_label(granularity) / PARAMS["method"] / "checkpoints")
 
 
+def prune_intermediate_checkpoints(granularity) -> None:
+    """Delete the step-cadence ``checkpoint-*`` dirs, keeping only the saved ``best/`` model.
+
+    ``load_best_model_at_end`` needs the checkpoints on disk during training; once the best model
+    has been reloaded and re-saved to ``best/`` they are just dead weight (and would otherwise pile
+    up ~30 GB/granularity and exhaust the disk), so drop them."""
+    for path in glob.glob(os.path.join(checkpoint_dir(granularity), "checkpoint-*")):
+        shutil.rmtree(path, ignore_errors=True)
+
+
 # ----------------------------------------------------------------------------- data + metrics
 
 def tokenize_splits(dataset_dict, tokenizer):
@@ -204,8 +217,9 @@ def train_one(granularity, tokenizer) -> dict:
         )],
     )
 
-    trainer.train()
+    trainer.train()  # load_best_model_at_end reloads the best checkpoint before we save it
     trainer.save_model(checkpoint_dir(granularity) + "/best")
+    prune_intermediate_checkpoints(granularity)  # keep only best/; drop the bulky step checkpoints
 
     test_metrics = trainer.evaluate(tokenized["test"], metric_key_prefix="test")
     print(f"Test metrics [{granularity_label(granularity)}]: {test_metrics}")
