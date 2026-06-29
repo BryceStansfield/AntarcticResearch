@@ -1,44 +1,47 @@
 """Launch a self-terminating Vast.ai GPU run to fine-tune the authorship classifiers.
 
-You pick the GPU *offer* in the Vast web UI, then drive everything from here. The GPU
-instance bootstraps itself (clones the repo, pulls the dataset from a cheap persistent
-storage instance, trains, copies results back to storage) and then destroys itself — so the
-run survives your connection dropping, and big files only ever move host-to-host over Vast's
-backbone, never across your slow uplink.
+You pick the GPU *machine* in the Vast web UI, then drive everything from here. The GPU
+instance bootstraps itself (clones the repo, pulls the dataset from your Google Drive via
+rclone, trains, pushes results back to Drive) and then destroys itself — so the run survives
+your connection dropping, and the only thing that ever crosses your uplink is the (small)
+dataset upload and whatever results you choose to pull later.
+
+There is NO second "storage" instance any more: Google Drive is the persistent middle. The
+GPU talks to Drive directly with rclone, which (unlike Vast's flaky inter-instance copy)
+handles large files reliably, resumably, and with real progress in the log.
 
 Typical workflow
 ----------------
-    # add "VAST_API_KEY": "..." to secrets.json (from the Vast console; injected into the
-    # GPU instance so it can self-destruct). VAST_API_KEY env var also works as a fallback.
+    # 1. One-time: configure an rclone Google Drive remote on your laptop (see the project
+    #    notes / rclone config guide). Name it to match CONFIG["rclone_remote"] (default
+    #    "gdrive") and use the drive.file scope so the token shipped to the GPU can only touch
+    #    files rclone itself creates.
+    # 2. Add "VAST_API_KEY": "..." to secrets.json (VAST_API_KEY env var also works).
 
-    # Find the GPU machine id in the web UI (the `m:NNNNN` value it shows). The GPU box picks the
-    # cheapest single-H200 (NVL or not) offer on that machine; the storage box is auto-picked
-    # globally (cheapest offer with enough disk and inet < storage_max_tb_cost $/TB up & down).
-    # Then in one step it rents storage, seeds the dataset, and launches the self-driving GPU run;
-    # if any setup step fails, every instance created so far is destroyed before aborting.
+    # Find the GPU machine id in the web UI (the `m:NNNNN` value). One step: sync the dataset to
+    # Drive, then launch the self-driving GPU run (cheapest 1x H200 offer on that machine).
     python vast_train.py run <gpu_machine_id> [--method naive]
 
-    # whenever convenient: pull results from storage to your laptop (resumable)
-    python vast_train.py pull <storage_instance_id> ./vast_results
+    # whenever convenient: pull results from Drive to your laptop (incremental/resumable)
+    python vast_train.py pull ./vast_results
 
-The individual steps (`storage-up`, `seed`, `train`) remain available if you'd rather seed a
-persistent storage box once and reuse it across many GPU runs (avoids re-seeding over 4G).
+The individual steps (`seed`, `train`) remain available if you'd rather upload the dataset to
+Drive once and fire off GPU runs without re-syncing it each time.
 
-Requirements: the Vast CLI (`pip install vastai`) on PATH (auth comes from secrets.json's
-VAST_API_KEY, threaded into every call — no `vastai set api-key` needed), plus `ssh`, `rsync`,
-and a local SSH key in ~/.ssh (its public half is attached to the storage instance per-run, so
-no account-level Vast key registration is needed — handy given SSH keys are personal-context
-while billing is org). Assumes a PUBLIC GitHub repo (LFS blobs skipped on clone).
+Requirements: the Vast CLI (`pip install vastai`) and `rclone` on PATH; auth comes from
+secrets.json's VAST_API_KEY (threaded into every Vast call) and from your local rclone config.
+A local SSH key in ~/.ssh is injected into the GPU box for debugging. Assumes a PUBLIC GitHub
+repo (LFS blobs skipped on clone).
 """
 import argparse
 import ast
+import base64
 import json
 import os
 import re
 import shlex
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,25 +53,23 @@ CONFIG = {
     "repo_url": "https://github.com/BryceStansfield/AntarcticResearch.git",
     "branch": "master",
 
-    # Censorship method to fine-tune (overridable per `train` invocation with --method).
+    # Censorship method to fine-tune (overridable per invocation with --method).
     "method": "raw",
 
-    # Images. GPU image must ship CUDA + a CUDA build of torch (or let `uv sync` install one).
+    # GPU image must ship CUDA + a CUDA build of torch (or let `uv sync` install one).
     "gpu_image": "vastai/pytorch:cuda-13.2.1-auto",
-    "storage_image": "vastai/base-image:@vastai-automatic-tag",
-    # Disk (GB). 8B checkpoints are ~16 GB each; size for repo + dataset + the checkpoints you keep.
+    # Disk (GB). 8B `best/` models are ~16 GB each; size for repo + dataset + the in-flight
+    # checkpoints of one granularity (the training script prunes them after each granularity).
     "gpu_disk_gb": 400,
-    "storage_disk_gb": 400,
-    # Storage box is auto-picked: cheapest offer with enough disk, inet up+down each under
-    # this $/TB cap (so the results download/upload stays cheap), and at least this much inet
-    # bandwidth up+down (a weak filter against boxes on bad networks / flaky inter-instance copy).
-    "storage_max_tb_cost": 5.0,
-    "storage_min_inet_mbps": 500,
 
-    # Paths on the storage instance, and the matching local dataset dir.
-    "remote_dataset_dir": "/workspace/data/finetuning",
-    "remote_results_dir": "/workspace/results",
+    # Local dataset dir (uploaded to Drive by `seed`/`run`, pulled by the GPU).
     "local_dataset_dir": "data/finetuning",
+
+    # rclone / Google Drive. Configure the remote once on your laptop (`rclone config`, drive.file
+    # scope recommended). Everything lives under <rclone_remote>:<drive_base>/:
+    #   <base>/data/finetuning   <- the dataset      <base>/results/<run-label>/  <- results
+    "rclone_remote": "gdrive",
+    "drive_base": "wpauth",
 
     # Watchdog: the GPU instance hard-destroys itself after this many hours no matter what.
     "max_runtime_hours": 12,
@@ -89,10 +90,19 @@ echo "=== onstart $(date -u) label=$RUN_LABEL ==="
 SSH_KEY_INJECT_MARKER
 
 pip install -q --no-input vastai uv 2>/dev/null || true
-apt-get update -y >/dev/null 2>&1 && apt-get install -y git rsync curl >/dev/null 2>&1 || true
+apt-get update -y >/dev/null 2>&1 && apt-get install -y git curl unzip >/dev/null 2>&1 || true
 # The image ships an OLD vastai at /opt/instance-tools/bin (first on PATH) whose `show
 # instances` hits a removed v0 endpoint (HTTP 410, non-JSON). Prefer the newer pip CLI.
 export PATH="/usr/local/bin:$PATH"
+
+# Install rclone and materialise the single Drive remote shipped from the laptop (base64'd so it
+# survives the --env transport). --config keeps it self-contained.
+if ! command -v rclone >/dev/null 2>&1; then
+  curl -fsSL https://rclone.org/install.sh | bash || apt-get install -y rclone || true
+fi
+mkdir -p /root/.config/rclone
+printf '%s' "$RCLONE_CONF_B64" | base64 -d > /root/.config/rclone/rclone.conf
+RC="rclone --config /root/.config/rclone/rclone.conf --retries 10 --low-level-retries 20 -v --stats=20s --stats-one-line"
 
 SELF_ID=""
 resolve_self_id() {
@@ -104,97 +114,45 @@ resolve_self_id() {
   SELF_ID="$(printf '%s' "${VAST_CONTAINERLABEL:-}" | sed 's/^C\.//')"
 }
 
-status_msg() {  # this instance's status_msg; tolerant of a deprecation-warning prefix on --raw
-  vastai show instances --raw --api-key "$VAST_API_KEY" 2>/dev/null | python3 -c "
-import sys, re, json
-s = sys.stdin.read()
-m = re.search(r'\[.*\]', s, re.DOTALL)
-try:
-    d = json.loads(m.group(0)) if m else []
-    print(next((i.get('status_msg', '') for i in d if str(i.get('id')) == '$SELF_ID'), ''))
-except Exception:
-    print('')
-" 2>/dev/null || true
-}
-
-# Copy one remote dir to storage and WAIT for it to actually finish before the caller destroys
-# us. The copy is async; on the SENDER side status_msg cycles "Copying container data..." ->
-# "<bytes> <pct> <rate>" -> "Done copying" (empirically the reliable completion signal — the
-# receiver side just sticks on "Receiving copy...").
-#
-# CRITICAL: status updates lag ~30s, and a PREVIOUS copy leaves a stale "Done copying" sitting on
-# the status line. So we can't just poll for "Done copying" — the small logs copy's leftover
-# "Done copying" would make the big models copy "complete" instantly and we'd destroy mid-transfer
-# (this is exactly how a run shipped config.json but no .safetensors). Fix: if the status is
-# ALREADY "Done copying" when we fire (stale), require seeing an in-progress status first before we
-# trust the next "Done copying" as ours. Plus stall-detection on the byte counter so a hung copy
-# bails fast instead of burning the whole budget.
-_copy_to_storage() {  # $1=remote src dir  $2=storage dest parent  $3=label for logging
-  src="$1"; dest="$2"; what="$3"
-  for attempt in 1 2 3; do
-    echo "$what copy attempt $attempt -> storage..."
-    case "$(status_msg)" in *"Done copying"*) require_start=1;; *) require_start=0;; esac
-    vastai copy "$SELF_ID:$src" "$STORAGE_ID:$dest" --api-key "$VAST_API_KEY" || true
-    started=0; last_bytes=-1; stalls=0
-    for _ in $(seq 1 240); do   # up to ~60 min per attempt (big model payloads are slow)
-      msg="$(status_msg)"
-      echo "  status_msg: $msg"
-      case "$msg" in *"Copying container data"*|*[0-9]"%"*) started=1;; esac
-      case "$msg" in
-        *"Done copying"*)
-          if [ "$require_start" = 0 ] || [ "$started" = 1 ]; then
-            echo "$what copy complete"; return 0
-          fi ;;
-        *"Error"*) echo "  copy reported an error; retrying"; break;;
-      esac
-      bytes="$(printf '%s' "$msg" | grep -oE '^[0-9]+' || true)"; bytes="${bytes:--1}"
-      if [ "$bytes" = "$last_bytes" ]; then stalls=$((stalls + 1)); else stalls=0; fi
-      [ "$started" = 1 ] && [ "$stalls" -ge 10 ] && { echo "  copy stalled at ${bytes}b; retrying"; break; }
-      last_bytes="$bytes"
-      sleep 15
-    done
-    echo "  $what not confirmed on attempt $attempt; retrying"
-  done
-  echo "WARNING: $what copy never confirmed 'Done copying' — $what may be incomplete on storage"
-  return 1
-}
-
-# Push results to storage in two phases so a failure of the bulky model copy never costs us the
-# diagnostics. Phase 1 = run.log + test reports (tiny), copied FIRST on their own. Phase 2 = the
-# trained models, but ONLY each granularity's best/ dir (weights, no optimiser state) — never the
-# dataset (already on storage) nor the intermediate save_total_limit checkpoints. We hardlink
-# (cp -al, same filesystem) into the stage so models aren't duplicated on disk.
-copy_results() {
-  [ -z "${SELF_ID:-}" ] && { echo "no self id; cannot copy results"; return; }
+# Push results to Drive. rclone is synchronous, resumable, and reliable with large files (the
+# whole reason we dropped the Vast inter-instance copy), so this is just two copies. Logs go
+# FIRST (so diagnostics land even if the model copy dies), then the trained models, then a final
+# run.log re-push so the saved log captures the copy phase itself. We push ONLY each granularity's
+# best/ dir (weights, no optimiser state) — the dataset is already on Drive and the intermediate
+# checkpoints are pruned by the training script.
+push_results() {
   REPO_DATA="WORKDIR_PLACEHOLDER/repo/data/finetuning"
   STAGE="WORKDIR_PLACEHOLDER/_results_stage"
   rm -rf "$STAGE"; mkdir -p "$STAGE/logs" "$STAGE/models"
 
-  # Phase 1 — diagnostics first (run.log always exists; reports only if the run finished).
   cp -f WORKDIR_PLACEHOLDER/run.log "$STAGE/logs/run.log" 2>/dev/null || true
   find "$REPO_DATA" -maxdepth 1 -name 'test_report_*.txt' -exec cp -f {} "$STAGE/logs/" \; 2>/dev/null || true
-  _copy_to_storage "$STAGE/logs" "$REMOTE_RESULTS_DIR/$RUN_LABEL" "logs"
+  echo "pushing logs -> $DRIVE_RESULTS/logs"
+  $RC copy "$STAGE/logs" "$DRIVE_RESULTS/logs" --transfers 4 || true
 
-  # Phase 2 — best model per (granularity, method), tagged so the layout is flat under models/.
   found=0
   while IFS= read -r best; do
     md="$(dirname "$(dirname "$best")")"          # .../{gran}/{method}  (best is in .../checkpoints/best)
-    tag="$(basename "$(dirname "$md")")__$(basename "$md")"   # e.g. full__llm_censorship
+    tag="$(basename "$(dirname "$md")")__$(basename "$md")"   # e.g. full__raw
     cp -al "$best" "$STAGE/models/$tag" 2>/dev/null || cp -r "$best" "$STAGE/models/$tag"
     found=1
   done < <(find "$REPO_DATA" -type d -name best)
   if [ "$found" = 1 ]; then
-    _copy_to_storage "$STAGE/models" "$REMOTE_RESULTS_DIR/$RUN_LABEL" "models"
+    echo "pushing models -> $DRIVE_RESULTS/models"
+    $RC copy "$STAGE/models" "$DRIVE_RESULTS/models" --transfers 4 || true
   else
-    echo "no best/ model dirs found to copy (run likely died before saving any)"
+    echo "no best/ model dirs found to push (run likely died before saving any)"
   fi
+
+  cp -f WORKDIR_PLACEHOLDER/run.log "$STAGE/logs/run.log" 2>/dev/null || true
+  $RC copy "$STAGE/logs/run.log" "$DRIVE_RESULTS/logs" || true   # capture the copy phase in the log
 }
 
 cleanup() {
   set +e   # best-effort: never let a failed step abort teardown
   echo "=== cleanup $(date -u) ==="
   resolve_self_id   # last-ditch attempt if the bootstrap failed before the id was cached
-  copy_results
+  push_results
   if [ -n "${SELF_ID:-}" ]; then
     echo "destroying self $SELF_ID"
     # -y is essential: `destroy instance` prompts [y/N] and otherwise aborts (NOT destroyed).
@@ -204,7 +162,7 @@ cleanup() {
   fi
 }
 # Arm teardown as early as possible — right after the tooling it needs exists, and before any
-# of the failure-prone clone / copy / train work below.
+# of the failure-prone clone / pull / train work below.
 trap cleanup EXIT
 
 resolve_self_id
@@ -218,43 +176,14 @@ cd WORKDIR_PLACEHOLDER
 GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" repo
 cd repo
 
-# Pull the prepared dataset from storage. The remote->remote copy is ASYNC ("initiated") and,
-# fired right at boot, sometimes silently delivers nothing (the instance pairing isn't ready
-# yet). So drive it from the wait-loop: (re)trigger the copy whenever no bytes have arrived for
-# a few checks, and only proceed once the GPU's copy reaches EXPECTED_BYTES (the laptop-computed
-# size of what was seeded; file content only, so the figures match across filesystems). This
-# both blocks training until the data is fully present and self-heals a no-op copy.
-# mkdir the leaf (not just data/) so the find below never fails on a missing dir -- with
-# `set -o pipefail` + `set -e`, `cur=$(find data/finetuning ... | awk ...)` would abort the
-# whole script. Copying into the parent `data` still merges into this empty dir (no nesting).
+# Pull the prepared dataset from Drive. rclone copy is synchronous + resumable, so no byte-polling
+# dance — it simply blocks until the dataset is present, then we sanity-check it's non-empty.
+echo "pulling dataset from Drive: $DRIVE_DATASET"
 mkdir -p data/finetuning
-echo "pulling dataset from storage ($EXPECTED_BYTES bytes expected)..."
-cur=0; last=-1; stalls=3   # start "stalled" so the first iteration triggers the copy
-for _ in $(seq 1 180); do  # up to ~30 min
-  cur=$(find data/finetuning -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1} END{print s+0}'); cur=${cur:-0}
-  [ "$cur" -ge "$EXPECTED_BYTES" ] && { echo "dataset complete: ${cur}/${EXPECTED_BYTES} bytes"; break; }
-  if [ "$cur" = "$last" ]; then stalls=$((stalls + 1)); else stalls=0; fi
-  if [ "$stalls" -ge 3 ]; then
-    resolve_self_id   # a fresh instance often isn't in `show instances` at boot; re-resolve now
-    if [ -n "${SELF_ID:-}" ]; then
-      echo "  no progress at ${cur} bytes; (re)triggering copy (self=$SELF_ID)..."
-      # NB1: empty SELF_ID drops the "id:" prefix -> Vast errors "Destination instance must have
-      # an open port" and 0 bytes land, so we only trigger once it's resolved.
-      # NB2: copy the dir into the PARENT (repo/data), not repo/data/finetuning -- `vastai copy`
-      # places the source dir *inside* the dest (like `cp -r`), so dest=.../data lands it as
-      # data/finetuning/..., not the doubly-nested data/finetuning/finetuning/....
-      vastai copy "$STORAGE_ID:$REMOTE_DATASET_DIR" "$SELF_ID:WORKDIR_PLACEHOLDER/repo/data" \
-                  --api-key "$VAST_API_KEY" || true
-    else
-      echo "  self id still unresolved; will retry"
-    fi
-    stalls=0
-  fi
-  echo "  ...${cur}/${EXPECTED_BYTES} bytes"
-  last=$cur
-  sleep 10
-done
-[ "${cur:-0}" -ge "$EXPECTED_BYTES" ] || { echo "ERROR: dataset incomplete (${cur}/${EXPECTED_BYTES} bytes)"; exit 1; }
+$RC copy "$DRIVE_DATASET" data/finetuning --transfers 8
+n_files=$(find data/finetuning -type f | wc -l)
+echo "dataset files present: $n_files"
+[ "$n_files" -gt 0 ] || { echo "ERROR: no dataset files pulled from Drive ($DRIVE_DATASET)"; exit 1; }
 
 # Resolve the environment and train (fr_finetuned_model loops all granularities and writes
 # data/finetuning/test_report_<method>.txt). WPAUTH_METHOD selects the censorship method.
@@ -262,7 +191,7 @@ uv sync
 uv run python -m working_paper_authorship.fr_finetuned_model
 
 echo "=== training done $(date -u) ==="
-# trap EXIT handles result copy + self-destroy.
+# trap EXIT handles result push + self-destroy.
 """
 
 
@@ -287,8 +216,8 @@ def _vastai(*args: str) -> list[str]:
 
 
 def _redacted(cmd: list[str]) -> list[str]:
-    """Copy of cmd with the API key masked, for safe echoing (it appears both after
-    --api-key and inside the --env string)."""
+    """Copy of cmd with secrets masked, for safe echoing (the Vast key and the rclone config
+    blob both ride along after --api-key and inside the --env string)."""
     out, mask_next = [], False
     for tok in cmd:
         if mask_next:
@@ -296,7 +225,9 @@ def _redacted(cmd: list[str]) -> list[str]:
         elif tok == "--api-key":
             out.append(tok); mask_next = True
         else:
-            out.append(re.sub(r"(VAST_API_KEY=)\S+", r"\1****", tok))
+            tok = re.sub(r"(VAST_API_KEY=)\S+", r"\1****", tok)
+            tok = re.sub(r"(RCLONE_CONF_B64=)\S+", r"\1****", tok)
+            out.append(tok)
     return out
 
 
@@ -320,7 +251,7 @@ def _extract_obj(out: str):
 
 
 def _run(cmd: list[str], capture: bool = True) -> str:
-    """Run a command, echoing it (API key redacted). Returns stdout (when captured); exits on failure."""
+    """Run a command, echoing it (secrets redacted). Returns stdout (when captured); exits on failure."""
     print("+ " + " ".join(_redacted(cmd)))
     # stdin closed so an unexpected prompt (e.g. an ssh password fallback) can't block forever.
     result = subprocess.run(cmd, capture_output=capture, text=True, stdin=subprocess.DEVNULL)
@@ -358,48 +289,49 @@ def _create_instance(offer_id: str, image: str, disk_gb: int, label: str,
     return None
 
 
-def _ssh_conn(instance_id: str) -> tuple[str, str, str]:
-    """(user, host, port) for an instance, from `vastai ssh-url`."""
-    url = _run(_vastai("ssh-url", str(instance_id))).strip()
-    m = re.search(r"ssh://(?P<user>[^@]+)@(?P<host>[^:]+):(?P<port>\d+)", url)
-    if not m:
-        sys.exit(f"could not parse ssh url: {url!r}")
-    return m.group("user"), m.group("host"), m.group("port")
+# ---------------------------------------------------------------------- rclone / Google Drive
+
+def _rclone_check() -> None:
+    """Fail early with a friendly message if rclone isn't installed locally."""
+    try:
+        subprocess.run(["rclone", "version"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        sys.exit("rclone not found on PATH. Install it and run `rclone config` to set up the "
+                 f"'{CONFIG['rclone_remote']}' Google Drive remote (see the setup guide).")
 
 
-def _wait_running(instance_id: str, timeout_s: int = 900) -> None:
-    """Poll until the instance reports running and SSH answers."""
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        out = _run(_vastai("show", "instances", "--raw"))
-        data = _extract_obj(out)
-        inst = next((i for i in data if isinstance(i, dict) and str(i.get("id")) == str(instance_id)), None) if isinstance(data, list) else None
-        status = inst.get("actual_status") if inst else None
-        print(f"  status: {status}")
-        if status == "running":
-            user, host, port = _ssh_conn(instance_id)
-            try:
-                probe = subprocess.run(
-                    ["ssh", "-p", port, "-o", "StrictHostKeyChecking=no",
-                     "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"{user}@{host}", "true"],
-                    capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=20,
-                )
-                if probe.returncode == 0:
-                    return
-            except subprocess.TimeoutExpired:
-                pass
-        time.sleep(15)
-    sys.exit(f"instance {instance_id} did not become reachable within {timeout_s}s")
+def _drive(*parts: str) -> str:
+    """An rclone path under our base folder, e.g. _drive('results', label)."""
+    return f"{CONFIG['rclone_remote']}:" + "/".join([CONFIG["drive_base"], *parts])
 
 
-def _rsync(src: str, dst: str, port: str) -> None:
-    """Resumable rsync (survives 4G drops: --partial keeps half-sent files, --append-verify
-    resumes them, and rerunning the command picks up where it stopped)."""
-    _run([
-        "rsync", "-avP", "--partial", "--append-verify",
-        "-e", f"ssh -p {port} -o StrictHostKeyChecking=no -o BatchMode=yes",
-        src, dst,
-    ], capture=False)
+def _rclone_remote_conf(remote: str) -> str:
+    """Just the rclone.conf [section] for one remote, so we ship only that remote's token to the
+    GPU (not every remote you have configured)."""
+    _rclone_check()
+    out = subprocess.run(["rclone", "config", "file"], capture_output=True, text=True,
+                         stdin=subprocess.DEVNULL).stdout
+    m = re.search(r"(\S*rclone\.conf)", out)
+    conf_path = Path(m.group(1)) if m else Path.home() / ".config" / "rclone" / "rclone.conf"
+    if not conf_path.exists():
+        sys.exit(f"rclone config not found at {conf_path}; run `rclone config` first.")
+    text = conf_path.read_text()
+    section = re.search(rf"(?ms)^\[{re.escape(remote)}\]\s*$\n(.*?)(?=^\[|\Z)", text)
+    if not section:
+        sys.exit(f"no [{remote}] remote in {conf_path}. Run `rclone config` to create it, or set "
+                 f"CONFIG['rclone_remote'] to one you have.")
+    return f"[{remote}]\n{section.group(1).strip()}\n"
+
+
+def _seed_dataset_to_drive() -> None:
+    """Upload the local dataset to Drive (incremental: rclone skips unchanged files)."""
+    _rclone_check()
+    src = CONFIG["local_dataset_dir"].rstrip("/")
+    if not Path(src).is_dir():
+        sys.exit(f"local dataset dir not found: {src} (run prepare_data_for_finetuning first)")
+    dst = _drive("data", "finetuning")
+    print(f"syncing {src} -> {dst}")
+    _run(["rclone", "copy", src, dst, "-P", "--transfers", "8"], capture=False)
 
 
 # ---------------------------------------------------------------------- offer selection
@@ -436,53 +368,7 @@ def _pick_gpu_offer(machine_id: str) -> str:
     return str(best["id"])
 
 
-def _pick_cheapest_storage_offer() -> str:
-    """Cheapest rentable offer *anywhere* with enough disk and inet up AND down each under
-    CONFIG['storage_max_tb_cost'] $/TB — keeps the eventual results download/upload cheap.
-    (`inet_*_cost` is $/GB in the offer JSON, so $/TB = that * 1000.)"""
-    gb_cap = CONFIG["storage_max_tb_cost"] / 1000.0  # $/TB -> $/GB
-    disk = CONFIG["storage_disk_gb"]
-    out = _run(_vastai("search", "offers",
-                       f"rentable=true disk_space>{disk - 1} dph_total<2", "--raw"))
-    try:
-        offers = json.loads(out)
-    except json.JSONDecodeError:
-        offers = []
-    min_mbps = CONFIG["storage_min_inet_mbps"]
-    matches = [
-        o for o in offers
-        if o.get("rentable")
-        and (o.get("disk_space") or 0) >= disk
-        and (o["inet_up_cost"] if o.get("inet_up_cost") is not None else 1e9) < gb_cap
-        and (o["inet_down_cost"] if o.get("inet_down_cost") is not None else 1e9) < gb_cap
-        and (o.get("inet_up") or 0) > min_mbps
-        and (o.get("inet_down") or 0) > min_mbps
-    ]
-    if not matches:
-        sys.exit(f"no rentable offer with >= {disk} GB disk, inet "
-                 f"< ${CONFIG['storage_max_tb_cost']}/TB and > {min_mbps} Mbps up & down")
-    best = min(matches, key=lambda o: o.get("dph_total", float("inf")))
-    print(f"  selected storage {_describe_offer(best)} "
-          f"inet ${(best.get('inet_up_cost') or 0) * 1000:.2f}/${(best.get('inet_down_cost') or 0) * 1000:.2f} per TB, "
-          f"{best.get('inet_up', 0):.0f}/{best.get('inet_down', 0):.0f} Mbps up/down")
-    return str(best["id"])
-
-
 # --------------------------------------------------------------------------------- cores
-
-def _destroy(instance_id: str) -> None:
-    """Best-effort destroy (never raises or hangs). The -y is essential: `vastai destroy
-    instance` prompts [y/N] and otherwise aborts (with stdin closed it reads empty -> N -> the
-    instance is NOT destroyed)."""
-    try:
-        r = subprocess.run(_vastai("destroy", "instance", str(instance_id), "-y"),
-                           capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
-        ok = "destroying" in (r.stdout + r.stderr).lower()
-        print(f"  {'destroyed' if ok else 'destroy may have failed for'} instance {instance_id}"
-              + ("" if ok else f": {r.stdout.strip()} {r.stderr.strip()}"))
-    except subprocess.TimeoutExpired:
-        print(f"  WARNING: destroy of {instance_id} timed out — verify in the web UI")
-
 
 def _default_pubkey() -> str:
     """Path to this machine's default SSH public key (ed25519 preferred, then rsa/ecdsa,
@@ -497,23 +383,10 @@ def _default_pubkey() -> str:
     sys.exit("no SSH public key in ~/.ssh (generate one with `ssh-keygen`)")
 
 
-def _attach_ssh_key(instance_id: str) -> None:
-    """Attach this machine's default public key to an instance so we can ssh/rsync into it.
-    Done per-instance so it works regardless of the SSH-keys-are-personal-only / billing-is-org
-    account-context split (no account-level key registration needed). Best-effort backup to the
-    onstart key injection — attaching to an already-running instance can lag, so don't abort on it."""
-    try:
-        subprocess.run(_vastai("attach", "ssh", str(instance_id), _default_pubkey()),
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
-    except subprocess.TimeoutExpired:
-        pass
-
-
 def _ssh_inject_block() -> str:
     """Bash that bakes this machine's public key into root's authorized_keys with
     sshd-compatible perms (home dir + .ssh root-owned, not group/other-writable — this image
-    leaves /root too permissive). Shared by the storage onstart and the GPU onstart so *both*
-    instances are ssh-reachable, which makes debugging the GPU run far easier."""
+    leaves /root too permissive). Lets us ssh into the GPU box to watch/debug a live run."""
     q = shlex.quote(Path(_default_pubkey()).read_text().strip())
     return (
         "mkdir -p /root/.ssh\n"
@@ -525,164 +398,95 @@ def _ssh_inject_block() -> str:
     )
 
 
-def _storage_onstart_path() -> str:
-    """Onstart for the storage box: inject the SSH key so SSH works as soon as sshd is up
-    (no dependency on attach-key propagation, which lags on a running instance)."""
-    script = "#!/bin/bash\n" + _ssh_inject_block() + "\n"
-    path = Path("/tmp") / "wpauth-storage.onstart.sh"
-    path.write_text(script)
-    return str(path)
-
-
-def _dataset_expected_bytes() -> int:
-    """Total content bytes of all files under the local dataset dir. The GPU waits until its
-    async-copied dataset reaches exactly this before training — a precise completion signal.
-    Counts file sizes only (not directory inodes) so the laptop and GPU figures agree across
-    filesystems."""
-    root = Path(CONFIG["local_dataset_dir"])
-    return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
-
-
-def _seed_dataset(storage_id: str) -> None:
-    print(f"Waiting for storage instance {storage_id}...")
-    _wait_running(storage_id)
-    user, host, port = _ssh_conn(storage_id)
-    remote = CONFIG["remote_dataset_dir"]
-    # Pre-create both the dataset dir and the results dir: the GPU's results push (vastai copy)
-    # can't mkdir -p an intermediate path, so REMOTE_RESULTS_DIR must already exist on storage.
-    _run(["ssh", "-p", port, "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
-          f"{user}@{host}", f"mkdir -p {remote} {CONFIG['remote_results_dir']}"])
-    local = CONFIG["local_dataset_dir"].rstrip("/") + "/"
-    _rsync(local, f"{user}@{host}:{remote}/", port)
-
-
-def _launch_gpu(gpu_offer_id: str, storage_id: str, method: str) -> str | None:
+def _launch_gpu(gpu_offer_id: str, method: str) -> str | None:
     api_key = _api_key()
     label = _run_label()
     onstart_path = Path("/tmp") / f"{label}.onstart.sh"
     onstart = ONSTART.replace("WORKDIR_PLACEHOLDER", WORKDIR)
     onstart = onstart.replace("SSH_KEY_INJECT_MARKER", _ssh_inject_block())
     onstart_path.write_text(onstart)
+    conf_b64 = base64.b64encode(_rclone_remote_conf(CONFIG["rclone_remote"]).encode()).decode()
     env_pairs = {
         "VAST_API_KEY": api_key,
         "RUN_LABEL": label,
-        "STORAGE_ID": str(storage_id),
         "REPO_URL": CONFIG["repo_url"],
         "BRANCH": CONFIG["branch"],
         "WPAUTH_METHOD": method,
-        "REMOTE_DATASET_DIR": CONFIG["remote_dataset_dir"],
-        "REMOTE_RESULTS_DIR": CONFIG["remote_results_dir"],
         "MAX_RUNTIME_HOURS": str(CONFIG["max_runtime_hours"]),
-        "EXPECTED_BYTES": str(_dataset_expected_bytes()),
+        "RCLONE_CONF_B64": conf_b64,
+        "DRIVE_DATASET": _drive("data", "finetuning"),
+        "DRIVE_RESULTS": _drive("results", label),
     }
     iid = _create_instance(gpu_offer_id, CONFIG["gpu_image"], CONFIG["gpu_disk_gb"],
                            label, env_pairs, str(onstart_path))
     print(f"\nGPU run launched: label={label}, id={iid or '?'}, method={method}.")
     print("It is now self-driving (clone -> pull dataset -> train -> push results -> "
           "self-destroy). You can safely disconnect.")
-    print(f"Monitor:  vastai logs {iid or '<id>'}    (or watch results/{label}/run.log on storage)")
+    print(f"Monitor:  vastai logs {iid or '<id>'}")
+    print(f"Results will land at: {_drive('results', label)}")
     return iid
 
 
 # ------------------------------------------------------------------------------ subcommands
 
 def run(args) -> None:
-    """Rent storage -> seed dataset -> launch the GPU run, as one step. If anything before
-    the GPU is self-driving fails (renting, waiting, seeding), every instance created so far
-    is destroyed and the command aborts, so a half-built run never sits there billing."""
+    """Sync the dataset to Drive, then launch the self-driving GPU run. The GPU self-destroys
+    when finished (or on failure / the runtime-cap watchdog), so there's nothing left billing."""
     _api_key()
+    _rclone_check()
     method = args.method or CONFIG["method"]
-    created: list[str] = []
-    try:
-        print("=== 1/3 renting storage ===")
-        storage_offer = _pick_cheapest_storage_offer()
-        storage_id = _create_instance(storage_offer, CONFIG["storage_image"],
-                                      CONFIG["storage_disk_gb"], "wpauth-storage",
-                                      onstart_path=_storage_onstart_path())
-        if not storage_id:
-            raise RuntimeError("could not determine storage instance id from create output")
-        created.append(storage_id)
-        _attach_ssh_key(storage_id)  # best-effort backup to the onstart key injection
 
-        print("=== 2/3 seeding dataset ===")
-        _seed_dataset(storage_id)
+    print("=== 1/2 syncing dataset to Drive ===")
+    _seed_dataset_to_drive()
 
-        print("=== 3/3 launching GPU run ===")
-        gpu_offer = _pick_gpu_offer(args.gpu_machine_id)
-        gpu_id = _launch_gpu(gpu_offer, storage_id, method)
-        if gpu_id:
-            created.append(gpu_id)
-    except BaseException as exc:  # incl. SystemExit from _run() and KeyboardInterrupt
-        print(f"\n!! workflow failed ({exc}); terminating {len(created)} instance(s)...")
-        for iid in created:
-            _destroy(iid)
-        raise
-    print(f"\nDone. Storage instance {storage_id} persists (holds results); the GPU run "
-          f"self-destroys when finished.\nPull results later with: "
-          f"python vast_train.py pull {storage_id} ./vast_results")
-
-
-def storage_up(args) -> None:
-    _api_key()
-    label = "wpauth-storage"
-    offer = _pick_cheapest_storage_offer()
-    iid = _create_instance(offer, CONFIG["storage_image"], CONFIG["storage_disk_gb"], label,
-                           onstart_path=_storage_onstart_path())
-    if iid:
-        _attach_ssh_key(iid)
-    print(f"\nStorage instance requested (label={label}, id={iid or '?'}).")
-    print("Wait for it to come up (`vastai show instances`), then run `seed <id>`.")
+    print("=== 2/2 launching GPU run ===")
+    gpu_offer = _pick_gpu_offer(args.gpu_machine_id)
+    _launch_gpu(gpu_offer, method)
+    print(f"\nDone. Pull results later with: python vast_train.py pull ./vast_results")
 
 
 def seed(args) -> None:
-    _api_key()
-    _seed_dataset(args.storage_id)
-    print("\nDataset seeded to storage. Re-run this any time to sync changes (resumable).")
+    _seed_dataset_to_drive()
+    print("\nDataset synced to Drive. Re-run any time to update (incremental).")
 
 
 def train(args) -> None:
+    """Launch a GPU run assuming the dataset is already on Drive (skips the re-sync)."""
     _api_key()
+    _rclone_check()
     gpu_offer = _pick_gpu_offer(args.gpu_machine_id)
-    _launch_gpu(gpu_offer, args.storage_id, args.method or CONFIG["method"])
-    print(f"Pull results with: python vast_train.py pull {args.storage_id} ./vast_results")
+    _launch_gpu(gpu_offer, args.method or CONFIG["method"])
+    print("Pull results with: python vast_train.py pull ./vast_results")
 
 
 def pull(args) -> None:
-    _api_key()
-    _wait_running(args.storage_id)
-    user, host, port = _ssh_conn(args.storage_id)
+    _rclone_check()
     dest = Path(args.dest)
     dest.mkdir(parents=True, exist_ok=True)
-    _rsync(f"{user}@{host}:{CONFIG['remote_results_dir']}/", str(dest).rstrip("/") + "/", port)
-    print(f"\nResults pulled to {dest}/ (resumable — rerun to fetch new runs).")
+    src = _drive("results")
+    print(f"pulling {src} -> {dest}/")
+    _run(["rclone", "copy", src, str(dest), "-P", "--transfers", "8"], capture=False)
+    print(f"\nResults pulled to {dest}/ (incremental — rerun to fetch new runs).")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("run", help="rent storage (auto-picked) + seed dataset + launch GPU run in one "
-                                    "step (destroys everything created if any setup step fails)")
+    p = sub.add_parser("run", help="sync dataset to Drive + launch the self-driving GPU run")
     p.add_argument("gpu_machine_id", help="machine id for the GPU box (cheapest 1x H200 offer is picked)")
     p.add_argument("--method", choices=["raw", "naive", "llm_censorship"], default=None)
     p.set_defaults(func=run)
 
-    p = sub.add_parser("storage-up", help="create the storage instance (cheapest offer with enough disk "
-                                          "and inet < storage_max_tb_cost $/TB, auto-picked)")
-    p.set_defaults(func=storage_up)
-
-    p = sub.add_parser("seed", help="rsync the local dataset to the storage instance (resumable)")
-    p.add_argument("storage_id")
+    p = sub.add_parser("seed", help="upload the local dataset to Google Drive (incremental)")
     p.set_defaults(func=seed)
 
-    p = sub.add_parser("train", help="rent a 1x H200 on a machine id and fire off a self-terminating run")
+    p = sub.add_parser("train", help="launch a GPU run (dataset assumed already on Drive)")
     p.add_argument("gpu_machine_id")
-    p.add_argument("storage_id")
     p.add_argument("--method", choices=["raw", "naive", "llm_censorship"], default=None)
     p.set_defaults(func=train)
 
-    p = sub.add_parser("pull", help="rsync results from storage to a local dir (resumable)")
-    p.add_argument("storage_id")
+    p = sub.add_parser("pull", help="download results from Drive to a local dir (incremental)")
     p.add_argument("dest")
     p.set_defaults(func=pull)
 
