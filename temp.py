@@ -1,3 +1,0 @@
-import embeddings.embed_all_documents
-
-embeddings.embed_all_documents.embed_all()

@@ -1,1 +1,0 @@
-TODO: Add python_ocr_cache.sqlite3 into git lfs
