@@ -180,7 +180,7 @@ class DocumentTextGetter():
 
         if len(wp_info_row) >= 1: # Multiple rows if multiple attachements.
             wp_info_row = wp_info_row.iloc[0]
-            return {"text": text, "sort_string": f"YEAR_{wp_info_row['meeting_year']}_DOCNUM_{wp_info_row['paper_number']}_TYPE_{wp_info_row['party_type']}", "parties": wp_info_row['parties'], "paper_language": wp_info_row["paper_language"]}
+            return {"text": text, "year": wp_info_row['meeting_year'], "sort_string": f"YEAR_{wp_info_row['meeting_year']}_DOCNUM_{wp_info_row['paper_number']}_TYPE_{wp_info_row['party_type']}", "parties": wp_info_row['parties'], "paper_language": wp_info_row["paper_language"]}
         return {"text": text}
 
     def get_document_representation(self, document_uuid: str) -> dict:

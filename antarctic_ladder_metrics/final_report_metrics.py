@@ -210,7 +210,7 @@ def warm_intervention_cache() -> None:
             model=INTERVENTION_MODEL,
             messages=_build_intervention_messages("Warmup.", ["Chile"]),
             max_tokens=1,
-            temperature=0.0,
+            temperature=1.0,
         )
     except Exception as e:
         print(f"Cache warm-up failed (continuing anyway): {e}")
@@ -231,7 +231,7 @@ def classify_intervening_parties(sentence: str, countries: list[str]) -> list[st
     response = _openrouter_client().chat.completions.create(
         model=INTERVENTION_MODEL,
         messages=_build_intervention_messages(sentence, list(display_names.values())),
-        temperature=0.0,
+        temperature=1.0,
     )
     reply = response.choices[0].message.content or ""
 
@@ -351,9 +351,9 @@ class FinalReportBaker:
     COUNTRIES = [
             "argentina", "australia", "belgium", "brazil", "bulgaria", "chile", "china",
             "czech republic", "ecuador", "finland", "france", "germany", "india",
-            "Italy", "japan", "korea", "netherlands", "new zealand",
+            "italy", "japan", "korea", "netherlands", "new zealand",
             "norway", "peru", "poland", "russia", "south africa",
-            "spain", "sweden", "turkey", "türkiye", "ukraine", "uruguay", "united kingdom", "united states"
+            "spain", "sweden", "turkey", "ukraine", "uruguay", "united kingdom", "united states"
     ]
 
     def __init__(self):

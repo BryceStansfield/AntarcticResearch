@@ -35,6 +35,10 @@ country_alternative_names = CaseInsensitiveDict.from_dict({
     "Argentina": ["argentino"]  # Grammatical variation.
 })
 
+alternative_names_to_countries = CaseInsensitiveDict.from_dict({
+    alt: c1 for c1, alts in country_alternative_names.items() for alt in alts
+})
+
 def get_country_value_from_dict(country_dict, country_name):
     country_dict = CaseInsensitiveDict.from_dict(country_dict)
     s = 0
@@ -89,3 +93,9 @@ def get_list_of_country_affiliations():
             k, v = l.split(';')
             d[k.strip()] = v.strip()
         return d
+
+def normalize_country_name(c):
+    base_name = alternative_names_to_countries.get(c, None)
+    if base_name is not None:
+        return base_name.lower()
+    return c.lower()

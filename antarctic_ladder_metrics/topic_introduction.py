@@ -4,7 +4,9 @@ from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 
 import embeddings.document_embeddings as document_embeddings
+import country_meta_info
 
+import pandas as pd
 
 class OpenRouterEmbedder:
     """BERTopic-compatible embedder backed by document_embeddings.py + OpenRouter."""
@@ -59,19 +61,32 @@ class TopicIntroduction():
                 topic_to_docs[t] = [documents[i]]
         
         earliest_docs = [min(docs, key=lambda d:d["sort_string"]) for docs in topic_to_docs.values()]
-        self.topic_introduction_count = {}
+        self.yearly_topic_introduction_count = {}
         for d in earliest_docs:
+            y = d["year"]
             for party in d["parties"]:
-                if party in self.topic_introduction_count:
-                    self.topic_introduction_count[party] += 1/len(d["parties"])
+                party = country_meta_info.normalize_country_name(party)
+                if (y, party) in self.yearly_topic_introduction_count:
+                    self.yearly_topic_introduction_count[(y, party)] += 1/len(d["parties"])
                 else:
-                    self.topic_introduction_count[party] = 1/len(d["parties"])
+                    self.yearly_topic_introduction_count[(y, party)] = 1/len(d["parties"])
+        
+        self.topic_introduction_count = {}
+        for k in self.yearly_topic_introduction_count:
+            if k[1] in self.topic_introduction_count:
+                self.topic_introduction_count[k[1]] += self.yearly_topic_introduction_count[k]
+            else:
+                self.topic_introduction_count[k[1]] = self.yearly_topic_introduction_count[k]
     
     def country_dict(self) -> dict:
         return self.topic_introduction_count
 
     def figure_title(self) -> str:
         return "Working Paper Idea Introduction"
+
+    def save_full_figures(self, path: str):
+        yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.yearly_topic_introduction_count.items()]
+        pd.DataFrame(yearly_figures).to_csv(path)
     
 if __name__ == "__main__":
     print(TopicIntroduction().country_dict())

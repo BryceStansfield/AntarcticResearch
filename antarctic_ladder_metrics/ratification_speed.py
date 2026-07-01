@@ -12,8 +12,8 @@ class RatificationSpeed():
                             & (measures["ATCM_Year"] <= 2024)
                             & (measures["Type"] == "Measure")
                             & ~measures["Approvals"].str.contains("Fast Approval", na=False)
-                            & (measures["Approvals"] != "")]
-                            #& ~measures["Approvals"].isna()]
+                            & (measures["Approvals"] != "")
+                            & ~measures["Approvals"].isna()]
 
         # TODO: Try using exact ATCM and approval dates.
         # TODO: Choose how to deal with never going to be approved measures.

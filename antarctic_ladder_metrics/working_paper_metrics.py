@@ -1,5 +1,6 @@
 import pandas as pd
 from antarctic_ladder_metrics.constants import *
+import country_meta_info
 
 import networkx
 
@@ -12,21 +13,34 @@ class WorkingPaperAuthorship():
         wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= START_YEAR) & (wp_authorship_table["meeting_year"] <= END_YEAR)]
         wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
 
-        authors = list(wp_authorship_table["parties"].map(split_parties))
+        self.country_authorships_by_year = {}
+        for i in range(START_YEAR, END_YEAR+1):
+            authors = list(wp_authorship_table[wp_authorship_table["meeting_year"] == i]["parties"].map(split_parties))
+            
+            for pl in authors:
+                for p in pl:
+                    p = country_meta_info.normalize_country_name(p)
+                    if (i, p) in self.country_authorships_by_year:
+                        self.country_authorships_by_year[(i, p)] += 1/len(pl)
+                    else:
+                        self.country_authorships_by_year[(i, p)] = 1/len(pl)
         
         self.country_authorships = {}
-        for pl in authors:
-            for p in pl:
-                if p in self.country_authorships:
-                    self.country_authorships[p] += 1/len(pl)
-                else:
-                    self.country_authorships[p] = 1/len(pl)
+        for k in self.country_authorships_by_year:
+            if k[1] in self.country_authorships:
+                self.country_authorships[k[1]] += self.country_authorships_by_year[k]
+            else:
+                self.country_authorships[k[1]] = self.country_authorships_by_year[k]
             
     def country_dict(self) -> dict:
         return dict(self.country_authorships)
 
     def figure_title(self) -> str:
         return "Working Paper Authorship"
+    
+    def save_full_figures(self, path: str):
+        yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.country_authorships_by_year.items()]
+        pd.DataFrame(yearly_figures).to_csv(path)
 
 class WPCollaborationGraphCentrality():
     def __init__(self) -> None:
@@ -113,10 +127,10 @@ class WPCollaborationDiversity():
         return dict(self.diversity)
 
     def figure_title(self) -> str:
-        return "WP Collaboration Graph Centrality"
+        return "WP Collaboration Diversity"
 
 
 if __name__ == "__main__":
-    WorkingPaperAuthorship()
+    WorkingPaperAuthorship().save_full_figures("test.csv")
     WPCollaborationGraphCentrality()
     print(WPCollaborationDiversity().country_dict())

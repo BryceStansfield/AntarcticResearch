@@ -25,9 +25,9 @@ class MeasureWPIntroducers():
         for pl in doc_parties:
             for p in pl[0]:
                 if p in self.country_sums:
-                    self.country_sums[p] += (1/len(pl)) * pl[1]
+                    self.country_sums[p] += (1/len(pl[0])) * pl[1]
                 else:
-                    self.country_sums[p] = (1/len(pl)) * pl[1]
+                    self.country_sums[p] = (1/len(pl[0])) * pl[1]
 
     def country_dict(self) -> dict:
         return dict(self.country_sums)
