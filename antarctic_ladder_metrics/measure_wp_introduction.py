@@ -16,8 +16,8 @@ class MeasureWPIntroducers():
         
         docs = []
         for doc_set in closest_docs:
-            weight = sum(doc_set[i][1] for i in range(neighbours_to_weigh))
-            docs.append([(d[0], (d[1])/weight) for d in doc_set[:neighbours_to_weigh]])
+            weight = sum(1/doc_set[i][1] for i in range(neighbours_to_weigh))
+            docs.append([(d[0], (1/d[1])/weight) for d in doc_set[:neighbours_to_weigh]])
         
         doc_parties = [(utils.split_parties(document_getter.get_document_representation(d[0])["parties"]), d[1]) for d_set in docs for d in d_set ]
 
@@ -36,4 +36,4 @@ class MeasureWPIntroducers():
         return "Measure WP Introductions"
 
 if __name__ == "__main__":
-    MeasureWPIntroducers()
+    print(MeasureWPIntroducers().country_dict())

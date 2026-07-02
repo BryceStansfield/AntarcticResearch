@@ -27,6 +27,7 @@ def map_all_wp_ip_file_locations():
     
     with open(map_path, "w") as f:
         json.dump(location_map, f)
+    return location_map
 
 if __name__ == "__main__":
     map_all_wp_ip_file_locations()

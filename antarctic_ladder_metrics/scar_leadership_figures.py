@@ -25,7 +25,7 @@ class ScarLeadershipFigures():
 
         self._counts = {}
         for k in self.country_counts_by_years:
-                self._counts[k[1]] += self._counts.get(k[1], 0) + self.country_counts_by_years[k]
+                self._counts[k[1]] = self._counts.get(k[1], 0) + self.country_counts_by_years[k]
 
     def country_dict(self) -> dict:
         return self._counts
