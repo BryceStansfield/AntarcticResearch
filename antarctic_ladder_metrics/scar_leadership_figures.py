@@ -1,10 +1,11 @@
 import csv
 
 from antarctic_ladder_metrics.constants import *
+import pandas as pd
 
 class ScarLeadershipFigures():
     def __init__(self):
-        country_counts = {}
+        self.country_counts_by_years = {}
 
         with open("data/SCAR_Leadership.csv", newline="", encoding="utf-8") as f:
             reader = csv.reader(f)
@@ -20,12 +21,18 @@ class ScarLeadershipFigures():
                     for country in cell.split("&"):
                         country = country.strip()
                         if country:
-                            country_counts[country] = country_counts.get(country, 0) + 1
+                            self.country_counts_by_years[(year, country,)] = self.country_counts_by_years.get((year, country), 0) + 1
 
-        self._counts = country_counts
+        self._counts = {}
+        for k in self.country_counts_by_years:
+                self._counts += self._counts.get(k[1], 0) + self.country_counts_by_years[k]
 
     def country_dict(self) -> dict:
         return self._counts
 
     def figure_title(self) -> str:
         return "Scar Leadership Positions"
+    
+    def save_full_figures(self, path: str):
+        yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.country_counts_by_years.items()]
+        pd.DataFrame(yearly_figures).to_csv(path)

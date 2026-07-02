@@ -14,6 +14,7 @@ from sentence_splitter import split_sentences
 import pathlib
 import conversions
 from antarctic_ladder_metrics.constants import *
+import pandas as pd
 
 FINAL_REPORT_PATH = pathlib.Path("data/final_reports")
 METRICS_DB_PATH = pathlib.Path("data/final_reports/final_report_metrics_fuzzy.sqlite3")
@@ -410,10 +411,15 @@ class FinalReportBaker:
 class FinalReportMentionFigures(FinalReportBaker):
     def __init__(self):
         super().__init__()
-        self.country_to_figure = {}
+        self.yearly_country_to_figure = {}
 
-        for country in super().COUNTRIES:
-            self.country_to_figure[" ".join([c.capitalize() for c in country.split(" ")])] = get_country_figures(country, False, START_YEAR, END_YEAR)
+        for year in range(START_YEAR, END_YEAR+1):
+            for country in super().COUNTRIES:
+                self.yearly_country_to_figure[(year, " ".join([c.capitalize() for c in country.split(" ")]))] = get_country_figures(country, False, year, year)
+        
+        self.country_to_figure = {}
+        for k in self.yearly_country_to_figure:
+            self.country_to_figure[k[1]] = self.country_to_figure.get(k[1], 0) + self.yearly_country_to_figure[k]
 
     def country_dict(self) -> dict:
         return self.country_to_figure
@@ -421,20 +427,32 @@ class FinalReportMentionFigures(FinalReportBaker):
     def figure_title(self) -> str:
         return "Final Report Mentions"
 
+    def save_full_figures(self, path:str):
+        yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.yearly_country_to_figure.items()]
+        pd.DataFrame(yearly_figures).to_csv(path)\
 
 class FinalReportInterventionFigures(FinalReportBaker):
     def __init__(self):
         super().__init__()
-        self.country_to_figure = {}
+        self.yearly_country_to_figure = {}
 
-        for country in super().COUNTRIES:
-            self.country_to_figure[" ".join([c.capitalize() for c in country.split(" ")])] = get_country_figures(country, True, START_YEAR, END_YEAR)
+        for year in range(START_YEAR, END_YEAR+1):
+            for country in super().COUNTRIES:
+                self.yearly_country_to_figure[(year, " ".join([c.capitalize() for c in country.split(" ")]))] = get_country_figures(country, True, year, year)
+        
+        self.country_to_figure = {}
+        for k in self.yearly_country_to_figure:
+            self.country_to_figure[k[1]] = self.country_to_figure.get(k[1], 0) + self.yearly_country_to_figure[k]
 
     def country_dict(self) -> dict:
         return self.country_to_figure
 
     def figure_title(self) -> str:
         return "Final Report Interventions"
+
+    def save_full_figures(self, path:str):
+        yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.yearly_country_to_figure.items()]
+        pd.DataFrame(yearly_figures).to_csv(path)
 
 
 if __name__ == "__main__":
