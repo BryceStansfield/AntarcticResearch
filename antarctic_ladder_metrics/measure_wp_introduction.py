@@ -6,7 +6,7 @@ class MeasureWPIntroducers():
     def __init__(self, neighbours_to_weigh = 3):
         document_getter = embeddings.document_embeddings.DocumentTextGetter()
         measures = list(filter(lambda m: START_YEAR <= m["year"] and m["year"] <= END_YEAR, document_getter.get_all_of_type("measure")))
-        # TODO: Flag that this is mostly ANNEX-V measures...
+        # TODO: Check that this works for ANNEX-V measures.
 
         working_paper_getter = embeddings.document_embeddings.EmbeddingLookerUpper("WorkingPaper")
         

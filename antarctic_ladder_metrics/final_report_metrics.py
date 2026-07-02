@@ -429,7 +429,7 @@ class FinalReportMentionFigures(FinalReportBaker):
 
     def save_full_figures(self, path:str):
         yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.yearly_country_to_figure.items()]
-        pd.DataFrame(yearly_figures).to_csv(path)\
+        pd.DataFrame(yearly_figures).to_csv(path)
 
 class FinalReportInterventionFigures(FinalReportBaker):
     def __init__(self):

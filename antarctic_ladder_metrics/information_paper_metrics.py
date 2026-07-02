@@ -3,6 +3,7 @@ import pandas as pd
 from antarctic_ladder_metrics.constants import *
 
 from utils import split_parties
+import country_meta_info
 
 class InformationPaperAuthorship():
     def __init__(self) -> None:
@@ -13,10 +14,11 @@ class InformationPaperAuthorship():
 
         self.yearly_country_authorships = {}
         for year in range(START_YEAR, END_YEAR+1):
-            authors = list(ip_authorship_table["parties"].map(split_parties))
+            authors = list(ip_authorship_table[ip_authorship_table["meeting_year"] == year]["parties"].map(split_parties))
             
             for pl in authors:
                 for p in pl:
+                    p = country_meta_info.normalize_country_name(p)
                     self.yearly_country_authorships[(year, p)] = self.yearly_country_authorships.get((year, p), 0) + 1/len(pl)
 
         self.country_authorships = {}
