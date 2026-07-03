@@ -2,7 +2,6 @@
 # Cache DBs under 100mb are tracked via git-lfs (see .gitattributes)
 !python_ocr_cache.sqlite3
 !llm_censorship.sqlite3
-MeasureCorpus*
 SCAR_Leadership.xlsx
 scraping_failure_list.txt
 test*
