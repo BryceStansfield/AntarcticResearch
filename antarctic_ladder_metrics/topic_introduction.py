@@ -2,6 +2,7 @@
 import numpy as np
 from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
+from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
 import country_meta_info
@@ -33,7 +34,8 @@ class TopicIntroduction():
         documents = self.document_text_getter.get_all_of_type("WorkingPaper")
         documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
 
-        topic_model = BERTopic(embedding_model=OpenRouterEmbedder("WorkingPaper"), min_topic_size=5, representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
+        umap_model = UMAP(random_state=42)
+        topic_model = BERTopic(embedding_model=OpenRouterEmbedder("WorkingPaper"), umap_model=umap_model, min_topic_size=5, representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
         topics, probs = topic_model.fit_transform([d["text"] for d in documents])
 
         topic_info = topic_model.get_topic_info()
