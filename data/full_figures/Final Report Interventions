@@ -1,0 +1,751 @@
+,year,country,value
+0,2000,Argentina,0
+1,2000,Australia,0
+2,2000,Belgium,0
+3,2000,Brazil,0
+4,2000,Bulgaria,0
+5,2000,Chile,0
+6,2000,China,0
+7,2000,Czech Republic,0
+8,2000,Ecuador,0
+9,2000,Finland,0
+10,2000,France,0
+11,2000,Germany,0
+12,2000,India,0
+13,2000,Italy,0
+14,2000,Japan,0
+15,2000,Korea,0
+16,2000,Netherlands,0
+17,2000,New Zealand,0
+18,2000,Norway,0
+19,2000,Peru,0
+20,2000,Poland,0
+21,2000,Russia,0
+22,2000,South Africa,0
+23,2000,Spain,0
+24,2000,Sweden,0
+25,2000,Turkey,0
+26,2000,Ukraine,0
+27,2000,Uruguay,0
+28,2000,United Kingdom,0
+29,2000,United States,0
+30,2001,Argentina,37
+31,2001,Australia,34
+32,2001,Belgium,6
+33,2001,Brazil,4
+34,2001,Bulgaria,2
+35,2001,Chile,24
+36,2001,China,3
+37,2001,Czech Republic,9
+38,2001,Ecuador,4
+39,2001,Finland,3
+40,2001,France,7
+41,2001,Germany,21
+42,2001,India,4
+43,2001,Italy,0
+44,2001,Japan,5
+45,2001,Korea,0
+46,2001,Netherlands,7
+47,2001,New Zealand,25
+48,2001,Norway,21
+49,2001,Peru,14
+50,2001,Poland,13
+51,2001,Russia,45
+52,2001,South Africa,1
+53,2001,Spain,11
+54,2001,Sweden,12
+55,2001,Turkey,0
+56,2001,Ukraine,1
+57,2001,Uruguay,17
+58,2001,United Kingdom,14
+59,2001,United States,13
+60,2002,Argentina,27
+61,2002,Australia,42
+62,2002,Belgium,1
+63,2002,Brazil,5
+64,2002,Bulgaria,4
+65,2002,Chile,16
+66,2002,China,6
+67,2002,Czech Republic,8
+68,2002,Ecuador,0
+69,2002,Finland,4
+70,2002,France,14
+71,2002,Germany,18
+72,2002,India,6
+73,2002,Italy,0
+74,2002,Japan,8
+75,2002,Korea,2
+76,2002,Netherlands,6
+77,2002,New Zealand,45
+78,2002,Norway,5
+79,2002,Peru,5
+80,2002,Poland,16
+81,2002,Russia,25
+82,2002,South Africa,4
+83,2002,Spain,12
+84,2002,Sweden,2
+85,2002,Turkey,0
+86,2002,Ukraine,5
+87,2002,Uruguay,14
+88,2002,United Kingdom,68
+89,2002,United States,40
+90,2003,Argentina,32
+91,2003,Australia,70
+92,2003,Belgium,3
+93,2003,Brazil,3
+94,2003,Bulgaria,2
+95,2003,Chile,36
+96,2003,China,5
+97,2003,Czech Republic,13
+98,2003,Ecuador,0
+99,2003,Finland,3
+100,2003,France,21
+101,2003,Germany,9
+102,2003,India,8
+103,2003,Italy,0
+104,2003,Japan,9
+105,2003,Korea,5
+106,2003,Netherlands,12
+107,2003,New Zealand,62
+108,2003,Norway,23
+109,2003,Peru,3
+110,2003,Poland,8
+111,2003,Russia,29
+112,2003,South Africa,6
+113,2003,Spain,24
+114,2003,Sweden,10
+115,2003,Turkey,0
+116,2003,Ukraine,7
+117,2003,Uruguay,7
+118,2003,United Kingdom,43
+119,2003,United States,39
+120,2004,Argentina,49
+121,2004,Australia,63
+122,2004,Belgium,7
+123,2004,Brazil,2
+124,2004,Bulgaria,4
+125,2004,Chile,22
+126,2004,China,10
+127,2004,Czech Republic,17
+128,2004,Ecuador,4
+129,2004,Finland,9
+130,2004,France,9
+131,2004,Germany,17
+132,2004,India,18
+133,2004,Italy,0
+134,2004,Japan,10
+135,2004,Korea,4
+136,2004,Netherlands,16
+137,2004,New Zealand,29
+138,2004,Norway,39
+139,2004,Peru,9
+140,2004,Poland,4
+141,2004,Russia,21
+142,2004,South Africa,28
+143,2004,Spain,19
+144,2004,Sweden,12
+145,2004,Turkey,0
+146,2004,Ukraine,11
+147,2004,Uruguay,7
+148,2004,United Kingdom,35
+149,2004,United States,26
+150,2005,Argentina,34
+151,2005,Australia,76
+152,2005,Belgium,11
+153,2005,Brazil,12
+154,2005,Bulgaria,5
+155,2005,Chile,41
+156,2005,China,14
+157,2005,Czech Republic,10
+158,2005,Ecuador,9
+159,2005,Finland,1
+160,2005,France,23
+161,2005,Germany,43
+162,2005,India,18
+163,2005,Italy,0
+164,2005,Japan,17
+165,2005,Korea,2
+166,2005,Netherlands,12
+167,2005,New Zealand,46
+168,2005,Norway,31
+169,2005,Peru,9
+170,2005,Poland,5
+171,2005,Russia,31
+172,2005,South Africa,8
+173,2005,Spain,13
+174,2005,Sweden,28
+175,2005,Turkey,0
+176,2005,Ukraine,9
+177,2005,Uruguay,17
+178,2005,United Kingdom,58
+179,2005,United States,33
+180,2006,Argentina,51
+181,2006,Australia,66
+182,2006,Belgium,16
+183,2006,Brazil,14
+184,2006,Bulgaria,2
+185,2006,Chile,35
+186,2006,China,15
+187,2006,Czech Republic,3
+188,2006,Ecuador,7
+189,2006,Finland,1
+190,2006,France,45
+191,2006,Germany,21
+192,2006,India,10
+193,2006,Italy,0
+194,2006,Japan,4
+195,2006,Korea,7
+196,2006,Netherlands,10
+197,2006,New Zealand,60
+198,2006,Norway,18
+199,2006,Peru,10
+200,2006,Poland,6
+201,2006,Russia,29
+202,2006,South Africa,5
+203,2006,Spain,14
+204,2006,Sweden,15
+205,2006,Turkey,0
+206,2006,Ukraine,7
+207,2006,Uruguay,15
+208,2006,United Kingdom,85
+209,2006,United States,28
+210,2007,Argentina,46
+211,2007,Australia,59
+212,2007,Belgium,7
+213,2007,Brazil,16
+214,2007,Bulgaria,4
+215,2007,Chile,54
+216,2007,China,27
+217,2007,Czech Republic,2
+218,2007,Ecuador,15
+219,2007,Finland,8
+220,2007,France,23
+221,2007,Germany,28
+222,2007,India,49
+223,2007,Italy,0
+224,2007,Japan,18
+225,2007,Korea,7
+226,2007,Netherlands,14
+227,2007,New Zealand,72
+228,2007,Norway,38
+229,2007,Peru,16
+230,2007,Poland,7
+231,2007,Russia,39
+232,2007,South Africa,4
+233,2007,Spain,24
+234,2007,Sweden,26
+235,2007,Turkey,0
+236,2007,Ukraine,18
+237,2007,Uruguay,14
+238,2007,United Kingdom,50
+239,2007,United States,42
+240,2008,Argentina,69
+241,2008,Australia,89
+242,2008,Belgium,15
+243,2008,Brazil,23
+244,2008,Bulgaria,6
+245,2008,Chile,60
+246,2008,China,56
+247,2008,Czech Republic,4
+248,2008,Ecuador,9
+249,2008,Finland,1
+250,2008,France,36
+251,2008,Germany,33
+252,2008,India,19
+253,2008,Italy,0
+254,2008,Japan,34
+255,2008,Korea,11
+256,2008,Netherlands,11
+257,2008,New Zealand,78
+258,2008,Norway,30
+259,2008,Peru,4
+260,2008,Poland,0
+261,2008,Russia,35
+262,2008,South Africa,6
+263,2008,Spain,16
+264,2008,Sweden,2
+265,2008,Turkey,0
+266,2008,Ukraine,33
+267,2008,Uruguay,17
+268,2008,United Kingdom,73
+269,2008,United States,52
+270,2009,Argentina,73
+271,2009,Australia,98
+272,2009,Belgium,21
+273,2009,Brazil,8
+274,2009,Bulgaria,5
+275,2009,Chile,60
+276,2009,China,21
+277,2009,Czech Republic,2
+278,2009,Ecuador,11
+279,2009,Finland,5
+280,2009,France,27
+281,2009,Germany,27
+282,2009,India,15
+283,2009,Italy,0
+284,2009,Japan,25
+285,2009,Korea,15
+286,2009,Netherlands,9
+287,2009,New Zealand,45
+288,2009,Norway,45
+289,2009,Peru,10
+290,2009,Poland,0
+291,2009,Russia,38
+292,2009,South Africa,14
+293,2009,Spain,7
+294,2009,Sweden,12
+295,2009,Turkey,0
+296,2009,Ukraine,15
+297,2009,Uruguay,12
+298,2009,United Kingdom,58
+299,2009,United States,62
+300,2010,Argentina,127
+301,2010,Australia,111
+302,2010,Belgium,19
+303,2010,Brazil,6
+304,2010,Bulgaria,3
+305,2010,Chile,80
+306,2010,China,14
+307,2010,Czech Republic,3
+308,2010,Ecuador,16
+309,2010,Finland,0
+310,2010,France,68
+311,2010,Germany,41
+312,2010,India,29
+313,2010,Italy,0
+314,2010,Japan,39
+315,2010,Korea,22
+316,2010,Netherlands,33
+317,2010,New Zealand,98
+318,2010,Norway,76
+319,2010,Peru,2
+320,2010,Poland,1
+321,2010,Russia,65
+322,2010,South Africa,14
+323,2010,Spain,11
+324,2010,Sweden,9
+325,2010,Turkey,0
+326,2010,Ukraine,14
+327,2010,Uruguay,37
+328,2010,United Kingdom,132
+329,2010,United States,128
+330,2011,Argentina,109
+331,2011,Australia,175
+332,2011,Belgium,20
+333,2011,Brazil,14
+334,2011,Bulgaria,12
+335,2011,Chile,72
+336,2011,China,36
+337,2011,Czech Republic,4
+338,2011,Ecuador,22
+339,2011,Finland,3
+340,2011,France,65
+341,2011,Germany,66
+342,2011,India,22
+343,2011,Italy,0
+344,2011,Japan,42
+345,2011,Korea,35
+346,2011,Netherlands,42
+347,2011,New Zealand,63
+348,2011,Norway,77
+349,2011,Peru,9
+350,2011,Poland,4
+351,2011,Russia,63
+352,2011,South Africa,10
+353,2011,Spain,19
+354,2011,Sweden,13
+355,2011,Turkey,0
+356,2011,Ukraine,14
+357,2011,Uruguay,29
+358,2011,United Kingdom,114
+359,2011,United States,67
+360,2012,Argentina,63
+361,2012,Australia,107
+362,2012,Belgium,23
+363,2012,Brazil,25
+364,2012,Bulgaria,3
+365,2012,Chile,67
+366,2012,China,14
+367,2012,Czech Republic,2
+368,2012,Ecuador,8
+369,2012,Finland,2
+370,2012,France,36
+371,2012,Germany,32
+372,2012,India,15
+373,2012,Italy,0
+374,2012,Japan,15
+375,2012,Korea,10
+376,2012,Netherlands,28
+377,2012,New Zealand,76
+378,2012,Norway,38
+379,2012,Peru,0
+380,2012,Poland,12
+381,2012,Russia,58
+382,2012,South Africa,5
+383,2012,Spain,31
+384,2012,Sweden,7
+385,2012,Turkey,0
+386,2012,Ukraine,8
+387,2012,Uruguay,8
+388,2012,United Kingdom,98
+389,2012,United States,76
+390,2013,Argentina,82
+391,2013,Australia,82
+392,2013,Belgium,47
+393,2013,Brazil,25
+394,2013,Bulgaria,1
+395,2013,Chile,43
+396,2013,China,40
+397,2013,Czech Republic,8
+398,2013,Ecuador,16
+399,2013,Finland,0
+400,2013,France,67
+401,2013,Germany,45
+402,2013,India,18
+403,2013,Italy,0
+404,2013,Japan,14
+405,2013,Korea,22
+406,2013,Netherlands,41
+407,2013,New Zealand,77
+408,2013,Norway,50
+409,2013,Peru,4
+410,2013,Poland,6
+411,2013,Russia,84
+412,2013,South Africa,18
+413,2013,Spain,43
+414,2013,Sweden,5
+415,2013,Turkey,4
+416,2013,Ukraine,2
+417,2013,Uruguay,14
+418,2013,United Kingdom,130
+419,2013,United States,109
+420,2014,Argentina,82
+421,2014,Australia,139
+422,2014,Belgium,37
+423,2014,Brazil,47
+424,2014,Bulgaria,16
+425,2014,Chile,50
+426,2014,China,56
+427,2014,Czech Republic,5
+428,2014,Ecuador,6
+429,2014,Finland,2
+430,2014,France,79
+431,2014,Germany,47
+432,2014,India,15
+433,2014,Italy,0
+434,2014,Japan,6
+435,2014,Korea,12
+436,2014,Netherlands,32
+437,2014,New Zealand,76
+438,2014,Norway,92
+439,2014,Peru,4
+440,2014,Poland,15
+441,2014,Russia,58
+442,2014,South Africa,13
+443,2014,Spain,23
+444,2014,Sweden,4
+445,2014,Turkey,0
+446,2014,Ukraine,0
+447,2014,Uruguay,5
+448,2014,United Kingdom,137
+449,2014,United States,122
+450,2015,Argentina,104
+451,2015,Australia,88
+452,2015,Belgium,23
+453,2015,Brazil,24
+454,2015,Bulgaria,45
+455,2015,Chile,58
+456,2015,China,24
+457,2015,Czech Republic,27
+458,2015,Ecuador,12
+459,2015,Finland,5
+460,2015,France,43
+461,2015,Germany,24
+462,2015,India,20
+463,2015,Italy,0
+464,2015,Japan,7
+465,2015,Korea,9
+466,2015,Netherlands,19
+467,2015,New Zealand,83
+468,2015,Norway,59
+469,2015,Peru,2
+470,2015,Poland,8
+471,2015,Russia,33
+472,2015,South Africa,8
+473,2015,Spain,14
+474,2015,Sweden,6
+475,2015,Turkey,1
+476,2015,Ukraine,7
+477,2015,Uruguay,13
+478,2015,United Kingdom,124
+479,2015,United States,78
+480,2016,Argentina,89
+481,2016,Australia,71
+482,2016,Belgium,22
+483,2016,Brazil,12
+484,2016,Bulgaria,14
+485,2016,Chile,106
+486,2016,China,43
+487,2016,Czech Republic,5
+488,2016,Ecuador,18
+489,2016,Finland,1
+490,2016,France,43
+491,2016,Germany,22
+492,2016,India,10
+493,2016,Italy,0
+494,2016,Japan,21
+495,2016,Korea,18
+496,2016,Netherlands,15
+497,2016,New Zealand,51
+498,2016,Norway,65
+499,2016,Peru,3
+500,2016,Poland,10
+501,2016,Russia,35
+502,2016,South Africa,9
+503,2016,Spain,27
+504,2016,Sweden,10
+505,2016,Turkey,3
+506,2016,Ukraine,11
+507,2016,Uruguay,10
+508,2016,United Kingdom,115
+509,2016,United States,64
+510,2017,Argentina,82
+511,2017,Australia,47
+512,2017,Belgium,26
+513,2017,Brazil,11
+514,2017,Bulgaria,8
+515,2017,Chile,38
+516,2017,China,41
+517,2017,Czech Republic,2
+518,2017,Ecuador,17
+519,2017,Finland,13
+520,2017,France,18
+521,2017,Germany,20
+522,2017,India,4
+523,2017,Italy,0
+524,2017,Japan,7
+525,2017,Korea,9
+526,2017,Netherlands,17
+527,2017,New Zealand,40
+528,2017,Norway,37
+529,2017,Peru,6
+530,2017,Poland,12
+531,2017,Russia,40
+532,2017,South Africa,7
+533,2017,Spain,14
+534,2017,Sweden,3
+535,2017,Turkey,21
+536,2017,Ukraine,2
+537,2017,Uruguay,5
+538,2017,United Kingdom,83
+539,2017,United States,38
+540,2018,Argentina,74
+541,2018,Australia,35
+542,2018,Belgium,9
+543,2018,Brazil,10
+544,2018,Bulgaria,3
+545,2018,Chile,30
+546,2018,China,43
+547,2018,Czech Republic,16
+548,2018,Ecuador,5
+549,2018,Finland,0
+550,2018,France,17
+551,2018,Germany,12
+552,2018,India,2
+553,2018,Italy,0
+554,2018,Japan,6
+555,2018,Korea,8
+556,2018,Netherlands,20
+557,2018,New Zealand,22
+558,2018,Norway,41
+559,2018,Peru,1
+560,2018,Poland,2
+561,2018,Russia,24
+562,2018,South Africa,4
+563,2018,Spain,7
+564,2018,Sweden,2
+565,2018,Turkey,9
+566,2018,Ukraine,10
+567,2018,Uruguay,8
+568,2018,United Kingdom,72
+569,2018,United States,28
+570,2019,Argentina,108
+571,2019,Australia,84
+572,2019,Belgium,5
+573,2019,Brazil,16
+574,2019,Bulgaria,18
+575,2019,Chile,79
+576,2019,China,52
+577,2019,Czech Republic,28
+578,2019,Ecuador,14
+579,2019,Finland,12
+580,2019,France,44
+581,2019,Germany,31
+582,2019,India,8
+583,2019,Italy,0
+584,2019,Japan,7
+585,2019,Korea,17
+586,2019,Netherlands,27
+587,2019,New Zealand,65
+588,2019,Norway,62
+589,2019,Peru,7
+590,2019,Poland,23
+591,2019,Russia,28
+592,2019,South Africa,4
+593,2019,Spain,41
+594,2019,Sweden,16
+595,2019,Turkey,17
+596,2019,Ukraine,20
+597,2019,Uruguay,11
+598,2019,United Kingdom,126
+599,2019,United States,92
+600,2020,Argentina,0
+601,2020,Australia,0
+602,2020,Belgium,0
+603,2020,Brazil,0
+604,2020,Bulgaria,0
+605,2020,Chile,0
+606,2020,China,0
+607,2020,Czech Republic,0
+608,2020,Ecuador,0
+609,2020,Finland,0
+610,2020,France,0
+611,2020,Germany,0
+612,2020,India,0
+613,2020,Italy,0
+614,2020,Japan,0
+615,2020,Korea,0
+616,2020,Netherlands,0
+617,2020,New Zealand,0
+618,2020,Norway,0
+619,2020,Peru,0
+620,2020,Poland,0
+621,2020,Russia,0
+622,2020,South Africa,0
+623,2020,Spain,0
+624,2020,Sweden,0
+625,2020,Turkey,0
+626,2020,Ukraine,0
+627,2020,Uruguay,0
+628,2020,United Kingdom,0
+629,2020,United States,0
+630,2021,Argentina,74
+631,2021,Australia,68
+632,2021,Belgium,14
+633,2021,Brazil,8
+634,2021,Bulgaria,13
+635,2021,Chile,51
+636,2021,China,29
+637,2021,Czech Republic,0
+638,2021,Ecuador,11
+639,2021,Finland,8
+640,2021,France,40
+641,2021,Germany,38
+642,2021,India,10
+643,2021,Italy,0
+644,2021,Japan,8
+645,2021,Korea,8
+646,2021,Netherlands,21
+647,2021,New Zealand,44
+648,2021,Norway,27
+649,2021,Peru,10
+650,2021,Poland,8
+651,2021,Russia,20
+652,2021,South Africa,6
+653,2021,Spain,51
+654,2021,Sweden,3
+655,2021,Turkey,25
+656,2021,Ukraine,14
+657,2021,Uruguay,9
+658,2021,United Kingdom,75
+659,2021,United States,63
+660,2022,Argentina,49
+661,2022,Australia,36
+662,2022,Belgium,13
+663,2022,Brazil,12
+664,2022,Bulgaria,5
+665,2022,Chile,25
+666,2022,China,46
+667,2022,Czech Republic,1
+668,2022,Ecuador,19
+669,2022,Finland,8
+670,2022,France,19
+671,2022,Germany,43
+672,2022,India,13
+673,2022,Italy,0
+674,2022,Japan,4
+675,2022,Korea,6
+676,2022,Netherlands,21
+677,2022,New Zealand,8
+678,2022,Norway,21
+679,2022,Peru,7
+680,2022,Poland,6
+681,2022,Russia,22
+682,2022,South Africa,3
+683,2022,Spain,19
+684,2022,Sweden,6
+685,2022,Turkey,0
+686,2022,Ukraine,17
+687,2022,Uruguay,15
+688,2022,United Kingdom,67
+689,2022,United States,38
+690,2023,Argentina,70
+691,2023,Australia,52
+692,2023,Belgium,26
+693,2023,Brazil,4
+694,2023,Bulgaria,16
+695,2023,Chile,32
+696,2023,China,21
+697,2023,Czech Republic,0
+698,2023,Ecuador,16
+699,2023,Finland,40
+700,2023,France,37
+701,2023,Germany,37
+702,2023,India,13
+703,2023,Italy,0
+704,2023,Japan,11
+705,2023,Korea,18
+706,2023,Netherlands,31
+707,2023,New Zealand,23
+708,2023,Norway,54
+709,2023,Peru,3
+710,2023,Poland,16
+711,2023,Russia,49
+712,2023,South Africa,2
+713,2023,Spain,33
+714,2023,Sweden,8
+715,2023,Turkey,0
+716,2023,Ukraine,20
+717,2023,Uruguay,14
+718,2023,United Kingdom,68
+719,2023,United States,65
+720,2024,Argentina,55
+721,2024,Australia,59
+722,2024,Belgium,9
+723,2024,Brazil,13
+724,2024,Bulgaria,12
+725,2024,Chile,38
+726,2024,China,47
+727,2024,Czech Republic,4
+728,2024,Ecuador,3
+729,2024,Finland,3
+730,2024,France,33
+731,2024,Germany,22
+732,2024,India,51
+733,2024,Italy,0
+734,2024,Japan,6
+735,2024,Korea,14
+736,2024,Netherlands,37
+737,2024,New Zealand,40
+738,2024,Norway,45
+739,2024,Peru,24
+740,2024,Poland,9
+741,2024,Russia,52
+742,2024,South Africa,1
+743,2024,Spain,35
+744,2024,Sweden,3
+745,2024,Turkey,0
+746,2024,Ukraine,7
+747,2024,Uruguay,25
+748,2024,United Kingdom,97
+749,2024,United States,67
