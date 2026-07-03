@@ -40,7 +40,7 @@ def aggregate_all_figures():
     full_figure_dir.mkdir(parents=True, exist_ok=True)
     for f in figures:
         try:
-            f.save_full_figures(full_figure_dir / f.figure_title())
+            f.save_full_figures(full_figure_dir / (f.figure_title() + ".csv"))
         except:
             pass
     return results
