@@ -12,6 +12,8 @@ from antarctic_ladder_metrics.measure_wp_introduction import MeasureWPIntroducer
 from antarctic_ladder_metrics.information_paper_metrics import InformationPaperAuthorship
 from downloaders.download_all import download_and_extract_all
 
+import pathlib
+
 def aggregate_all_figures():
     download_and_extract_all()
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
@@ -33,6 +35,14 @@ def aggregate_all_figures():
         print(f"  Countries not found: {not_found}")
 
     results.to_csv("data/ladder_results.csv")
+
+    full_figure_dir = pathlib.Path("data") / "full_figures"
+    full_figure_dir.mkdir(parents=True, exist_ok=True)
+    for f in figures:
+        try:
+            f.save_full_figures(full_figure_dir / f.figure_title())
+        except:
+            pass
     return results
 
 if __name__ == "__main__":
