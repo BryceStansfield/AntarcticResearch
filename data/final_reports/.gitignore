@@ -5,3 +5,6 @@
 *.sqlite3*
 # Tracked via git-lfs (see .gitattributes)
 !final_report_metrics_fuzzy.sqlite3
+!*.pdf
+!*.pdf.ocr.txt
+!download.complete
