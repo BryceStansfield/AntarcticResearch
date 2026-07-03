@@ -61,7 +61,9 @@ class WPCollaborationGraphCentrality():
                 party_set.add(c)
         
         collaboration_graph = networkx.Graph()
-        collaboration_graph.add_nodes_from(party_set)
+        # Add nodes in a deterministic order (country name descending) so the matrix
+        # layout used by the centrality computation is reproducible run-to-run.
+        collaboration_graph.add_nodes_from(sorted(party_set, reverse=True))
 
         edge_weights = {}
 
@@ -86,7 +88,8 @@ class WPCollaborationGraphCentrality():
         for c in edge_weights:
             edge_weights[c] /= max_edge_weight
         
-        for parties, weight in edge_weights.items():
+        # Add edges in a deterministic order (edge country-name pair descending).
+        for parties, weight in sorted(edge_weights.items(), reverse=True):
             collaboration_graph.add_edge(parties[0], parties[1], weight=weight)
         
         self.centrality = networkx.centrality.katz_centrality_numpy(collaboration_graph, alpha=0.1, weight="weight")
