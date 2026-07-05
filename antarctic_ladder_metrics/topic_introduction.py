@@ -9,6 +9,8 @@ import country_meta_info
 
 import pandas as pd
 
+from utils import split_parties
+
 class OpenRouterEmbedder:
     """BERTopic-compatible embedder backed by document_embeddings.py + OpenRouter."""
 
@@ -28,24 +30,36 @@ class OpenRouterEmbedder:
                 print(f"  Embedded {i + 1}/{len(documents)}")
         return np.array(vectors, dtype="float32")
 
-class TopicIntroduction():
+class WPBertTopic():
     def __init__(self):
         self.document_text_getter = document_embeddings.DocumentTextGetter()
         documents = self.document_text_getter.get_all_of_type("WorkingPaper")
-        documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
+        self.documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
 
         umap_model = UMAP(random_state=42)
-        topic_model = BERTopic(embedding_model=OpenRouterEmbedder("WorkingPaper"), umap_model=umap_model, min_topic_size=5, representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
-        topics, probs = topic_model.fit_transform([d["text"] for d in documents])
+        self.topic_model = BERTopic(embedding_model=OpenRouterEmbedder("WorkingPaper"), umap_model=umap_model, min_topic_size=5, representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
+        self.topics, self.probs = self.topic_model.fit_transform([d["text"] for d in self.documents])
 
-        topic_info = topic_model.get_topic_info()
+_WPBertTopicInstance = None
+def get_wp_bertopic():
+    global _WPBertTopicInstance
+
+    if _WPBertTopicInstance is None:
+        _WPBertTopicInstance = WPBertTopic()
+    return _WPBertTopicInstance
+
+class TopicIntroduction():
+    def __init__(self):
+        wp_bertopic = get_wp_bertopic()
+
+        topic_info = wp_bertopic.topic_model.get_topic_info()
 
         # Writing a text report on the topics, for sanity checking
         with open("data/topic_test.txt", "w") as f:
             f.write(topic_info.to_csv(index=False))
             f.write("\n")
             for topic_id in sorted(topic_info["Topic"]):
-                words = topic_model.get_topic(topic_id)
+                words = wp_bertopic.topic_model.get_topic(topic_id)
                 if isinstance(words, list):
                     word_str = ", ".join(f"{w}({s:.3f})" for w, s in words)
                     f.write(f"Topic {topic_id}: {word_str}\n")
@@ -53,14 +67,14 @@ class TopicIntroduction():
         # Finally, let's figure out which document is the earliest for each topic.
         topic_to_docs = {}
 
-        for i, t in enumerate(topics):
+        for i, t in enumerate(wp_bertopic.topics):
             if t == -1:
                 continue # Outlier topic
 
             if t in topic_to_docs:
-                topic_to_docs[t].append(documents[i])
+                topic_to_docs[t].append(wp_bertopic.documents[i])
             else:
-                topic_to_docs[t] = [documents[i]]
+                topic_to_docs[t] = [wp_bertopic.documents[i]]
         
         earliest_docs = [min(docs, key=lambda d:d["sort_string"]) for docs in topic_to_docs.values()]
         self.yearly_topic_introduction_count = {}
@@ -83,6 +97,32 @@ class TopicIntroduction():
     def save_full_figures(self, path: str):
         yearly_figures = [{"year": k[0], "country": k[1], "value": v} for k,v in self.yearly_topic_introduction_count.items()]
         pd.DataFrame(yearly_figures).to_csv(path)
-    
+
+class TopicDiversity():
+    def __init__(self):
+        wp_bertopic = get_wp_bertopic()
+        
+        self.countries_to_topics = {}
+
+        for i, t in enumerate(wp_bertopic.topics):
+            if t == -1:
+                continue # Outlier topic
+
+            countries = [country_meta_info.normalize_country_name(p) for p in split_parties(wp_bertopic.documents[i]["parties"])]
+            
+            for country in countries:
+                if country not in self.countries_to_topics:
+                    self.countries_to_topics[country] = set()
+                self.countries_to_topics[country].add(t)
+        
+        for c in self.countries_to_topics:
+            self.countries_to_topics[c] = len(self.countries_to_topics[c])
+
+    def country_dict(self) -> dict:
+        return self.countries_to_topics
+
+    def figure_title(self) -> str:
+        return "Working Paper Topic Diversity"
+
 if __name__ == "__main__":
-    print(TopicIntroduction().country_dict())
+    print(TopicDiversity().country_dict())

@@ -7,7 +7,7 @@ from antarctic_ladder_metrics.scar_leadership_figures import ScarLeadershipFigur
 from antarctic_ladder_metrics.scopus_figures import ScopusFigures
 from antarctic_ladder_metrics.ratification_speed import RatificationSpeed
 from antarctic_ladder_metrics.working_paper_metrics import WorkingPaperAuthorship, WPCollaborationGraphCentrality
-from antarctic_ladder_metrics.topic_introduction import TopicIntroduction
+from antarctic_ladder_metrics.topic_introduction import TopicIntroduction, TopicDiversity
 from antarctic_ladder_metrics.measure_wp_introduction import MeasureWPIntroducers
 from antarctic_ladder_metrics.information_paper_metrics import InformationPaperAuthorship
 from downloaders.download_all import download_and_extract_all
@@ -17,7 +17,7 @@ import pathlib
 def aggregate_all_figures():
     download_and_extract_all()
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
-    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), WPCollaborationGraphCentrality(), TopicIntroduction(), MeasureWPIntroducers(), InformationPaperAuthorship()]
+    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), WPCollaborationGraphCentrality(), TopicIntroduction(), TopicDiversity(), MeasureWPIntroducers(), InformationPaperAuthorship()]
     figure_dicts = [figure.country_dict() for figure in figures]
 
     results = pd.DataFrame(columns=["Country"] + [figure.figure_title() for figure in figures])
