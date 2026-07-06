@@ -1,11 +1,13 @@
-"""Censored / chunked working-paper authorship benchmark.
+"""Working-paper authorship benchmark over two document representations.
 
-Fetches working papers and their authors, splits deterministically at the document
-level, builds censored + uncensored copies at several sentence-chunk granularities,
-embeds every chunk, then trains the classifier suite. Hyperparameters are searched once
-on the censored full-document set and reused (fixed) for every other dataset. Models,
-chosen hyperparameters and a validation report are written to
-data/author_classification_models/.
+Fetches working papers and their authors, splits deterministically at the document level,
+then builds and embeds two representations:
+  1) whole documents, under every censorship method (raw / naive / LLM);
+  2) the importance-"keep" sentences of the LLM-censored documents (fluff dropped by the
+     semantic filter), one row per kept sentence.
+The classifier suite is trained on each. Hyperparameters are searched *separately* for every
+dataset (no shared search). Models, per-dataset hyperparameters and a validation report are
+written to data/author_classification_models/.
 """
 import json
 import pathlib
@@ -29,8 +31,9 @@ from xgboost import XGBClassifier
 
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
-from sentence_splitter import chunk_sentences
+from sentence_splitter import chunk_sentences, split_sentences
 from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text, author_for_stem
+from embeddings.working_paper_semantic_filter import get_or_classify
 from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding
 from embeddings.embed_all_documents import embed_document_set
 
@@ -40,25 +43,31 @@ RANDOM_STATE = 42
 VAL_TEST_SPLIT_RANDOM_STATE = 7
 OPTUNA_RANDOM_STATE = 1234
 CV_FOLDS = 3
-N_OPTUNA_TRIALS = 100
+N_OPTUNA_TRIALS = 32
 
 COUNTRIES = ["Australia", "United Kingdom", "United States", "Norway", "Chile"]
 MODEL_NAMES = ["Logistic Regression", "Random Forest", "XGBoost", "SVM"]
 
-# Document granularities: "full" document, or fixed-size sentence chunks.
-CHUNK_SIZES = [1, 2, 4, 8, 16, 32, 64]
-GRANULARITIES = ["full"] + CHUNK_SIZES
-# SVM is O(n^2)-ish; only run it where the row count stays modest (big chunks / full doc).
-SVM_MIN_CHUNK = 16
-
-# Censorship variants applied to each document's text before chunking/embedding.
-CENSORSHIP_METHODS = ["raw", "naive", "llm_censorship"]
-# Hyperparameters are searched once on the full documents of this censorship method.
-SEARCH_METHOD = "naive"
+# The datasets we benchmark, each (slug, censorship method, granularity):
+#   1) whole documents, under every censorship method ("full" granularity);
+#   2) the importance-"keep" sentences of the LLM-censored documents (one row per kept
+#      sentence, fluff dropped by the semantic filter).
+# Hyperparameters are searched separately for each dataset.
+DATASETS = [
+    ("raw__full",            "raw",            "full"),
+    ("naive__full",          "naive",          "full"),
+    ("llm_censorship__full", "llm_censorship", "full"),
+    ("llm_keep_sentences",   "llm_censorship", "keep_sentences"),
+]
 
 DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
 OUTPUT_DIR = pathlib.Path("data/author_classification_models")
 N_FEATURES = 4096
+# Cap on PCA components searched. Beyond this a full-SVD PCA on the large per-sentence dataset
+# (~16k rows) blows up memory under parallel CV, and >512 components rarely helps; capping here
+# also keeps the search space consistent across datasets (the whole-doc sets already topped out
+# at 512 via the fold-size limit below).
+MAX_PCA_COMPONENTS = 512
 
 _alias_to_canonical = CaseInsensitiveDict()
 for _country in COUNTRIES:
@@ -122,7 +131,9 @@ def base_pipeline(name: str) -> Pipeline:
     if name == "Logistic Regression":
         return _pipe(MultiOutputClassifier(LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)))
     if name == "Random Forest":
-        return _pipe(RandomForestClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=-1))
+        # n_jobs=1: the outer GridSearchCV parallelises across candidates/folds, so a
+        # thread-parallel RF here would oversubscribe the cores (and spike memory).
+        return _pipe(RandomForestClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=1))
     if name == "XGBoost":
         return _pipe(XGBClassifier(
             multi_strategy="multi_output_tree", tree_method="hist",
@@ -222,16 +233,24 @@ def split_documents(records: list[dict]):
 
 
 def granularity_label(granularity) -> str:
-    return "full" if granularity == "full" else f"chunk{granularity}"
+    if granularity in ("full", "keep_sentences"):
+        return granularity
+    return f"chunk{granularity}"
 
 
 def _chunk_units(text: str, granularity, type_str: str) -> list[tuple]:
-    """(hash, type, chunk_text) units for one document at the given granularity. Full
-    docs use the whole text; sentence chunks group `granularity` sentences together.
-    Either way each chunk is passed through get_wp_ip_embedding_args, which re-splits
-    anything over the embedder's context window — a safety net in case the sentence
-    tokenizer ever emits a >32k-token "sentence"."""
-    chunks = [text] if granularity == "full" else chunk_sentences(text, granularity)
+    """(hash, type, chunk_text) units for one document at the given granularity. "full" uses the
+    whole text; "keep_sentences" splits into sentences and keeps only those the semantic filter
+    labels important (one unit per kept sentence); an int groups that many sentences per chunk.
+    Either way each chunk is passed through get_wp_ip_embedding_args, which re-splits anything over
+    the embedder's context window — a safety net in case the sentence tokenizer ever emits a
+    >32k-token "sentence"."""
+    if granularity == "full":
+        chunks = [text]
+    elif granularity == "keep_sentences":
+        chunks = [s for raw in split_sentences(text) if (s := raw.strip()) and get_or_classify(s)]
+    else:
+        chunks = chunk_sentences(text, granularity)
     units = []
     for chunk in chunks:
         if chunk:
@@ -291,7 +310,8 @@ def random_guess_baseline(val_records: list[dict]) -> tuple[float, list[float]]:
 
 
 def _svm_allowed(granularity) -> bool:
-    return granularity == "full" or (isinstance(granularity, int) and granularity >= SVM_MIN_CHUNK)
+    """SVM is O(n^2)-ish — only run it on the whole-document sets, not the per-sentence one."""
+    return granularity == "full"
 
 
 def _model_slug(name: str) -> str:
@@ -321,67 +341,60 @@ def run_benchmark() -> list[dict]:
     train, val, test = split_documents(records)
     print(f"  docs: {len(records)} (train {len(train)}, val {len(val)}, test {len(test)} [reserved])")
 
-    datasets = [(method, gran) for method in CENSORSHIP_METHODS for gran in GRANULARITIES]
-
     # Collect every chunk across all datasets (train + val + test), dedupe, embed once.
     print("Chunking + collecting embedding work...")
     unique_units: dict[str, tuple] = {}
     plans: dict[tuple, list] = {}
-    for method, gran in datasets:
+    for slug, method, gran in DATASETS:
         for split_name, recs in (("train", train), ("val", val), ("test", test)):
             embed_units, hash_labels = dataset_units(recs, method, gran)
             for unit in embed_units:
                 unique_units.setdefault(unit[0], unit)
-            plans[(method, gran, split_name)] = hash_labels
+            plans[(slug, split_name)] = hash_labels
     print(f"Embedding {len(unique_units)} unique chunks (cached ones are skipped)...")
     embed_document_set(list(unique_units.values()))
 
-    # Step 5: search hyperparameters once on the SEARCH_METHOD full-document set. On rerun,
-    # reuse the persisted search instead of repeating it.
-    hp_path = OUTPUT_DIR / "best_hyperparameters.json"
-    if hp_path.exists():
-        print(f"\nLoading cached hyperparameters from {hp_path} (skipping search)...")
-        best_params = json.loads(hp_path.read_text())
-    else:
-        Xc_train, Yc_train = assemble_xy(plans[(SEARCH_METHOD, "full", "train")])
-        pca_dims = pca_search_dims(len(Xc_train), N_FEATURES)
-        print(f"\nSearching hyperparameters on {SEARCH_METHOD} full docs "
-              f"(n_train={len(Xc_train)}, pca_dims={pca_dims})...")
-        best_params = {}
-        for name in MODEL_NAMES:
-            print(f"  searching {name}...")
-            search = make_search(name, pca_dims)
-            search.fit(Xc_train, Yc_train)
-            best_params[name] = {k: _sanitise(v) for k, v in search.best_params_.items()}
-        hp_path.write_text(json.dumps(best_params, indent=2))
-
-    # Step 6: for every (dataset, model), reuse the saved model if it exists (rerun),
-    # otherwise fit it with the fixed hyperparameters and persist it. Validation
-    # statistics are recomputed either way.
+    # For every dataset, search its own hyperparameters (cached per dataset, reused on rerun),
+    # then fit + persist each model with those params. Validation statistics are recomputed
+    # either way. Saved models are reused as-is on rerun.
     results = []
-    for method, gran in datasets:
-        tag = f"{method}/{granularity_label(gran)}"
-        X_val, Y_val = assemble_xy(plans[(method, gran, "val")])
-        X_train = Y_train = None  # assembled lazily, only when a model needs fitting
-        print(f"\nDataset {tag}: val {X_val.shape}")
+    for slug, method, gran in DATASETS:
+        X_train, Y_train = assemble_xy(plans[(slug, "train")])
+        X_val, Y_val = assemble_xy(plans[(slug, "val")])
+        print(f"\nDataset {slug}: train {X_train.shape}, val {X_val.shape}")
+
+        hp_path = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
+        if hp_path.exists():
+            print(f"  loading cached hyperparameters from {hp_path.name} (skipping search)")
+            best_params = json.loads(hp_path.read_text())
+        else:
+            pca_dims = pca_search_dims(len(X_train), N_FEATURES)
+            print(f"  searching hyperparameters (n_train={len(X_train)}, pca_dims={pca_dims})...")
+            best_params = {}
+            for name in MODEL_NAMES:
+                if name == "SVM" and not _svm_allowed(gran):
+                    continue
+                print(f"    searching {name}...")
+                search = make_search(name, pca_dims)
+                search.fit(X_train, Y_train)
+                best_params[name] = {k: _sanitise(v) for k, v in search.best_params_.items()}
+            hp_path.write_text(json.dumps(best_params, indent=2))
+
         for name in MODEL_NAMES:
             if name == "SVM" and not _svm_allowed(gran):
                 continue
-            slug = f"{_model_slug(name)}__{method}__{granularity_label(gran)}"
-            pickle_path = OUTPUT_DIR / f"{slug}.pickle"
+            pickle_path = OUTPUT_DIR / f"{_model_slug(name)}__{slug}.pickle"
             if pickle_path.exists():
                 with open(pickle_path, "rb") as f:
                     model = pickle.load(f)
             else:
-                if X_train is None:
-                    X_train, Y_train = assemble_xy(plans[(method, gran, "train")])
                 model = make_fixed(name, best_params[name], X_train.shape[0])
                 model.fit(X_train, Y_train)
                 with open(pickle_path, "wb") as f:
                     pickle.dump(model, f)
 
             metrics = _evaluate(model, X_val, Y_val)
-            results.append({"model": name, "method": method, "granularity": gran, **metrics})
+            results.append({"model": name, "dataset": slug, **metrics})
             print(f"  {name:20s} loss={metrics['loss']:.4f} exact={metrics['exact']:.4f}")
 
     baseline_avg, baseline_per_class = random_guess_baseline(val)
@@ -390,31 +403,31 @@ def run_benchmark() -> list[dict]:
 
 
 def pca_search_dims(n_train: int, n_features: int) -> list[int]:
-    """Powers of two up to 4096, capped at what a CV training fold can support
+    """Powers of two, capped at MAX_PCA_COMPONENTS and at what a CV training fold can support
     (n_components <= min(n_features, fold samples))."""
-    max_components = min(n_features, (n_train * (CV_FOLDS - 1)) // CV_FOLDS)
+    max_components = min(n_features, MAX_PCA_COMPONENTS, (n_train * (CV_FOLDS - 1)) // CV_FOLDS)
     return [d for d in (2 ** i for i in range(13)) if d <= max_components]
 
 
 def write_report(results: list[dict], baseline_avg: float, baseline_per_class: list[float]) -> None:
     baseline_cols = " ".join(f"{b:.2f}" for b in baseline_per_class)
-    lines = ["WORKING PAPER AUTHORSHIP — CENSORED / CHUNKED BENCHMARK",
+    dataset_order = {slug: i for i, (slug, _, _) in enumerate(DATASETS)}
+    lines = ["WORKING PAPER AUTHORSHIP — WHOLE-DOC vs KEEP-SENTENCE BENCHMARK",
              f"Countries: {', '.join(COUNTRIES)}",
              "Metrics on the validation set (cross-entropy lower is better).",
              f"Random-guess BCE baseline (predict each class's base rate): {baseline_avg:.4f}  per-class[{baseline_cols}]",
              f"Per-country recall / precision order: {', '.join(COUNTRIES)}",
              "",
-             f"{'model':20s} {'method':15s} {'gran':7s} {'x-entropy':>10s} {'exact':>7s}  per-country recall / precision"]
-    for r in sorted(results, key=lambda r: (r["model"], CENSORSHIP_METHODS.index(r["method"]), str(r["granularity"]))):
+             f"{'model':20s} {'dataset':22s} {'x-entropy':>10s} {'exact':>7s}  per-country recall / precision"]
+    for r in sorted(results, key=lambda r: (r["model"], dataset_order[r["dataset"]])):
         rec = " ".join(f"{x:.2f}" for x in r["per_country_recall"])
         prec = " ".join(f"{p:.2f}" for p in r["per_country_precision"])
-        lines.append(f"{r['model']:20s} {r['method']:15s} "
-                     f"{granularity_label(r['granularity']):7s} {r['loss']:10.4f} {r['exact']:7.4f}  "
-                     f"rec[{rec}] prec[{prec}]")
+        lines.append(f"{r['model']:20s} {r['dataset']:22s} "
+                     f"{r['loss']:10.4f} {r['exact']:7.4f}  rec[{rec}] prec[{prec}]")
     report = "\n".join(lines)
     (OUTPUT_DIR / "report.txt").write_text(report)
     print("\n" + report)
-    print(f"\nWrote report + {len(results)} models + best_hyperparameters.json to {OUTPUT_DIR}/")
+    print(f"\nWrote report + {len(results)} models + per-dataset hyperparameters to {OUTPUT_DIR}/")
 
 
 def main():

@@ -8,3 +8,4 @@ test*
 topic_test.txt
 yearly/*
 semantic_filter_debug*
+author_classification_models*
