@@ -34,7 +34,7 @@ from country_meta_info import CaseInsensitiveDict, country_alternative_names
 from sentence_splitter import chunk_sentences, split_sentences
 from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text, author_for_stem
 from embeddings.working_paper_semantic_filter import get_or_classify
-from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding
+from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding, has_embedding
 from embeddings.embed_all_documents import embed_document_set
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -44,6 +44,12 @@ VAL_TEST_SPLIT_RANDOM_STATE = 7
 OPTUNA_RANDOM_STATE = 1234
 CV_FOLDS = 3
 N_OPTUNA_TRIALS = 32
+# Parallel candidates/trials per search. Set to 1 on purpose: one candidate already saturates the
+# machine — its PCA SVD streams the full 16k x 4096 keep-sentence matrix (memory-bandwidth bound)
+# and, with the estimators at n_jobs=-1, uses all cores. Fitting candidates one at a time (each
+# using the whole machine) avoids the cross-candidate memory-bandwidth contention, peak-RAM spikes,
+# and joblib memmap/IPC overhead that n_jobs=-1 caused here. Estimators parallelise internally.
+SEARCH_N_JOBS = 1
 
 COUNTRIES = ["Australia", "United Kingdom", "United States", "Norway", "Chile"]
 MODEL_NAMES = ["Logistic Regression", "Random Forest", "XGBoost", "SVM"]
@@ -131,13 +137,13 @@ def base_pipeline(name: str) -> Pipeline:
     if name == "Logistic Regression":
         return _pipe(MultiOutputClassifier(LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)))
     if name == "Random Forest":
-        # n_jobs=1: the outer GridSearchCV parallelises across candidates/folds, so a
-        # thread-parallel RF here would oversubscribe the cores (and spike memory).
-        return _pipe(RandomForestClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=1))
+        # n_jobs=-1: the search runs one candidate at a time (SEARCH_N_JOBS=1), so each RF should
+        # use all cores itself rather than run single-threaded.
+        return _pipe(RandomForestClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=-1))
     if name == "XGBoost":
         return _pipe(XGBClassifier(
             multi_strategy="multi_output_tree", tree_method="hist",
-            eval_metric="logloss", random_state=RANDOM_STATE, n_jobs=1,
+            eval_metric="logloss", random_state=RANDOM_STATE, n_jobs=-1,
         ))
     if name == "SVM":
         return _pipe(MultiOutputClassifier(CalibratedClassifierCV(SVC(random_state=RANDOM_STATE), ensemble=False)))
@@ -150,10 +156,10 @@ def make_search(name: str, pca_dims: list[int]):
     pipe = base_pipeline(name)
     if name == "Logistic Regression":
         return GridSearchCV(pipe, {"pca__n_components": pca_dims},
-                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=-1)
+                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=SEARCH_N_JOBS)
     if name == "Random Forest":
         return GridSearchCV(pipe, {"pca__n_components": pca_dims, "clf__max_depth": [None, 5, 10, 20]},
-                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=-1)
+                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=SEARCH_N_JOBS)
     if name == "XGBoost":
         return OptunaSearchCV(pipe, {
             "pca__n_components": CategoricalDistribution(pca_dims),
@@ -162,7 +168,7 @@ def make_search(name: str, pca_dims: list[int]):
             "clf__n_estimators": IntDistribution(100, 1000),
             "clf__subsample": FloatDistribution(0.5, 1.0),
         }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=CV_FOLDS,
-            n_jobs=-1, random_state=OPTUNA_RANDOM_STATE)
+            n_jobs=SEARCH_N_JOBS, random_state=OPTUNA_RANDOM_STATE)
     if name == "SVM":
         return OptunaSearchCV(pipe, {
             "pca__n_components": CategoricalDistribution(pca_dims),
@@ -170,7 +176,7 @@ def make_search(name: str, pca_dims: list[int]):
             "clf__estimator__estimator__gamma": FloatDistribution(1e-4, 1e0, log=True),
             "clf__estimator__estimator__kernel": CategoricalDistribution(["rbf"]),
         }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=CV_FOLDS,
-            n_jobs=-1, random_state=OPTUNA_RANDOM_STATE)
+            n_jobs=SEARCH_N_JOBS, random_state=OPTUNA_RANDOM_STATE)
     raise ValueError(f"Unknown model: {name}")
 
 
@@ -285,14 +291,22 @@ def dataset_units(records: list[dict], method: str, granularity):
 
 
 def assemble_xy(hash_labels: list[tuple]) -> tuple[np.ndarray, np.ndarray]:
-    """Read cached embeddings back and stack into (X, Y)."""
-    X_rows, Y_rows = [], []
+    """Read cached embeddings back and stack into (X, Y). Raises if any expected embedding is
+    missing rather than silently dropping the row — a partial embedding cache must never quietly
+    shrink/skew a dataset. Run the embedding step (or embed_missing_embeddings) first."""
+    X_rows, Y_rows, missing = [], [], 0
     for h, label in hash_labels:
         embedding = get_embedding(h)
         if embedding is None:
+            missing += 1
             continue
         X_rows.append(embedding)
         Y_rows.append(label)
+    if missing:
+        raise RuntimeError(
+            f"{missing}/{len(hash_labels)} fragments have no cached embedding. Re-run the "
+            f"embedding step (run_benchmark embeds automatically; or call embed_missing_embeddings)."
+        )
     return np.array(X_rows, dtype=np.float32), np.array(Y_rows, dtype=np.int32)
 
 
@@ -353,6 +367,15 @@ def run_benchmark() -> list[dict]:
             plans[(slug, split_name)] = hash_labels
     print(f"Embedding {len(unique_units)} unique chunks (cached ones are skipped)...")
     embed_document_set(list(unique_units.values()))
+
+    # Guard: every fragment must be embedded before training, so a partial cache can't silently
+    # shrink a dataset (assemble_xy would otherwise drop the missing rows).
+    missing = [h for h in unique_units if not has_embedding(h)]
+    if missing:
+        raise RuntimeError(
+            f"{len(missing)}/{len(unique_units)} fragments still have no embedding after "
+            f"embed_document_set — aborting rather than training on a partial dataset."
+        )
 
     # For every dataset, search its own hyperparameters (cached per dataset, reused on rerun),
     # then fit + persist each model with those params. Validation statistics are recomputed

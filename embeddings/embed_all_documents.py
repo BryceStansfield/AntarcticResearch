@@ -2,9 +2,16 @@ import multiprocessing
 import pandas
 from embeddings.document_embeddings import *
 from downloaders.map_all_wp_ip_locations import map_all_wp_ip_file_locations
-from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, COUNTRIES
+from embeddings.working_paper_censorship import (
+    get_working_paper_paths, censor_text, llm_censor_text, author_for_stem, COUNTRIES,
+)
+from sentence_splitter import split_sentences
 
 CENSORED_WORKING_PAPER_TYPE = "CensoredWorkingPaperV1"
+# Per-sentence embeddings of the LLM-censored working papers, over EVERY paper (not just the
+# target-country subset the authorship classifier embeds). Keyed on sha256(sentence) so they line
+# up with the semantic filter's per-sentence importance labels (semantic_filter.sqlite3).
+LLM_CENSORED_SENTENCE_TYPE = "LLMCensoredWPSentenceV1"
 
 def _embed_with_retry(*args):
     for attempt in range(3):
@@ -46,6 +53,40 @@ def embed_all_censored_working_papers(countries=COUNTRIES):
     print("Embedding censored working papers")
     embed_document_set(to_embed)
 
+def embed_all_llm_censored_working_paper_sentences():
+    """Embed every sentence of every LLM-censored working paper, across ALL papers with known
+    authorship — not just the target-country subset the authorship classifier covers.
+
+    Mirrors the semantic filter's sentence set exactly: for each English WP with author info,
+    ``llm_censor_text`` then ``split_sentences``, one embedding per non-empty sentence, keyed on
+    ``sha256(sentence)``. That is the same key ``working_paper_semantic_filter`` uses for its
+    IMPORTANT/FLUFF labels, so the two tables join one-to-one for the semi-supervised experiment.
+
+    Relies on the censorship phrase cache being populated (run ``detect_all_working_paper_phrases``
+    first) so ``llm_censor_text`` is a pure cache read rather than a flood of live LLM calls.
+    Already-embedded sentences are skipped, so this is safe to re-run."""
+    to_embed, seen = [], set()
+    print("Hashing LLM-censored working-paper sentences for embedding")
+    for path in get_working_paper_paths():
+        author = author_for_stem(path.stem)
+        if author is None:
+            continue  # no authorship info — can't LLM-censor (matches the semantic filter's skip)
+        censored = llm_censor_text(path.read_text(encoding="utf-8", errors="ignore"), author)
+        for raw in split_sentences(censored):
+            sentence = raw.strip()
+            if not sentence:
+                continue
+            for unit in get_wp_ip_embedding_args(sentence, LLM_CENSORED_SENTENCE_TYPE):
+                if unit[0] in seen:
+                    continue
+                seen.add(unit[0])
+                if not has_embedding(unit[0]):
+                    to_embed.append(unit)
+
+    print(f"Embedding {len(to_embed)} uncached LLM-censored sentences (of {len(seen)} unique)")
+    embed_document_set(to_embed)
+
+
 def embed_all():
     print("Embedding Measures")
     embed_all_measures()
@@ -68,6 +109,9 @@ def embed_all():
 
     print("Embedding censored working papers")
     embed_all_censored_working_papers()
+
+    print("Embedding LLM-censored working-paper sentences (all papers)")
+    embed_all_llm_censored_working_paper_sentences()
 
 if __name__ == "__main__":
     embed_all()

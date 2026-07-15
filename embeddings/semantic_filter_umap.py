@@ -14,10 +14,11 @@ What it does:
   2) UMAP the embeddings down to 2D and to 3D (PCA-50 pre-reduction for speed/stability).
   3) Scatter each projection coloured by IMPORTANT vs FLUFF (static PNGs + an interactive 3D HTML).
 
-Coverage caveat: this uses only sentences already embedded by other pipelines (~52% of all
-labelled sentences at time of writing). Sentences the LLM censor rewrote differently from the
-naive/raw single-sentence chunks were never embedded, so they're absent here. Good enough to eyeby
-separability; not a claim over the full corpus.
+Coverage: once ``embed_all_llm_censored_working_paper_sentences`` (in ``embed_all_documents``) has
+embedded every paper's LLM-censored sentences, the join covers ~all labelled sentences (128,798 of
+128,801; the 3 missing are long sentences that ``split_long_document`` sub-split, so they're stored
+under sub-segment hashes rather than ``sha256(whole sentence)``). Earlier runs saw only ~52% — the
+target-country subset the authorship classifier had embedded — so re-run the embed pass first.
 """
 import array
 import pathlib
