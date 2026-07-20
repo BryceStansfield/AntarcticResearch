@@ -7,8 +7,14 @@ then builds and embeds two representations:
      semantic filter), one row per kept sentence.
 The classifier suite is trained on each. Hyperparameters are searched *separately* for every
 dataset (no shared search). Models, per-dataset hyperparameters and a validation report are
-written to data/author_classification_models/.
+written to data/author_classification_models/, and a per-(model, dataset) CSV of held-out test
+set predictions to data/test_set_predictions/.
+
+Pass --final-test-eval to add a last stage: each dataset's best-on-validation model is refit on
+train+val (same hyperparameters, no new search) and scored once on the held-out test set, into
+final_test_report.txt. It is opt-in because every run of it consumes the test set.
 """
+import argparse
 import json
 import pathlib
 import pickle
@@ -68,6 +74,7 @@ DATASETS = [
 
 DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
 OUTPUT_DIR = pathlib.Path("data/author_classification_models")
+PREDICTIONS_DIR = pathlib.Path("data/test_set_predictions")
 N_FEATURES = 4096
 # Cap on PCA components searched. Beyond this a full-SVD PCA on the large per-sentence dataset
 # (~16k rows) blows up memory under parallel CV, and >512 components rarely helps; capping here
@@ -279,35 +286,38 @@ def dataset_units(records: list[dict], method: str, granularity):
     """Return (embed_units, hash_labels) for one (censorship method, granularity) dataset.
 
     embed_units: list of (hash, type, text) to feed the embedder.
-    hash_labels: list of (hash, label) preserving the chunk -> document-label link."""
+    hash_labels: list of (hash, label, stem) preserving the chunk -> document link (its label and
+    which working paper it came from)."""
     type_str = f"WPAuthorClf::{method}::{granularity_label(granularity)}"
     embed_units, hash_labels = [], []
     for rec in records:
         text = _apply_censorship(rec, method)
         for h, t, chunk in _chunk_units(text, granularity, type_str):
             embed_units.append((h, t, chunk))
-            hash_labels.append((h, rec["label"]))
+            hash_labels.append((h, rec["label"], rec["stem"]))
     return embed_units, hash_labels
 
 
-def assemble_xy(hash_labels: list[tuple]) -> tuple[np.ndarray, np.ndarray]:
-    """Read cached embeddings back and stack into (X, Y). Raises if any expected embedding is
-    missing rather than silently dropping the row — a partial embedding cache must never quietly
-    shrink/skew a dataset. Run the embedding step (or embed_missing_embeddings) first."""
-    X_rows, Y_rows, missing = [], [], 0
-    for h, label in hash_labels:
+def assemble_xy(hash_labels: list[tuple]) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Read cached embeddings back and stack into (X, Y, stems), where ``stems`` names the source
+    working paper of each row. Raises if any expected embedding is missing rather than silently
+    dropping the row — a partial embedding cache must never quietly shrink/skew a dataset. Run the
+    embedding step (or embed_missing_embeddings) first."""
+    X_rows, Y_rows, stems, missing = [], [], [], 0
+    for h, label, stem in hash_labels:
         embedding = get_embedding(h)
         if embedding is None:
             missing += 1
             continue
         X_rows.append(embedding)
         Y_rows.append(label)
+        stems.append(stem)
     if missing:
         raise RuntimeError(
             f"{missing}/{len(hash_labels)} fragments have no cached embedding. Re-run the "
             f"embedding step (run_benchmark embeds automatically; or call embed_missing_embeddings)."
         )
-    return np.array(X_rows, dtype=np.float32), np.array(Y_rows, dtype=np.int32)
+    return np.array(X_rows, dtype=np.float32), np.array(Y_rows, dtype=np.int32), stems
 
 
 # -------------------------------------------------------------------- orchestration
@@ -328,7 +338,7 @@ def _svm_allowed(granularity) -> bool:
     return granularity == "full"
 
 
-def _model_slug(name: str) -> str:
+def model_slug(name: str) -> str:
     return name.lower().replace(" ", "_")
 
 
@@ -347,13 +357,118 @@ def _evaluate(model, X_val, Y_val) -> dict:
     }
 
 
-def run_benchmark() -> list[dict]:
+def write_test_predictions(model, name: str, slug: str, X_test, Y_test, stems: list[str]) -> pathlib.Path:
+    """Write one CSV per (model, dataset) holding every test-set working paper: its true labels,
+    the model's predicted labels, and the pseudo-probabilities behind them.
+
+    One row per working paper. For the per-sentence dataset a document contributes many rows to
+    X_test, so its probabilities are averaged over its sentences and the prediction re-derived by
+    thresholding that mean at 0.5 (``n_units`` records how many sentences were pooled); for the
+    whole-document datasets n_units is 1 and the probabilities/predictions are the model's own."""
+    PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    proba = positive_proba(model, X_test)
+
+    df = pd.DataFrame({"stem": stems})
+    for i, country in enumerate(COUNTRIES):
+        df[f"true__{country}"] = Y_test[:, i]
+        df[f"prob__{country}"] = proba[:, i]
+    df["n_units"] = 1
+
+    prob_cols = [f"prob__{c}" for c in COUNTRIES]
+    # A document's true labels are identical across its rows, so "first" and "mean" agree there.
+    agg = {**{f"true__{c}": "first" for c in COUNTRIES}, **{c: "mean" for c in prob_cols}, "n_units": "sum"}
+    df = df.groupby("stem", as_index=False, sort=True).agg(agg)
+    for country in COUNTRIES:
+        df[f"pred__{country}"] = (df[f"prob__{country}"] >= 0.5).astype(int)
+
+    columns = ["stem", "n_units"] + [f"{p}__{c}" for c in COUNTRIES for p in ("true", "pred", "prob")]
+    path = PREDICTIONS_DIR / f"{model_slug(name)}__{slug}.csv"
+    df[columns].to_csv(path, index=False)
+    return path
+
+
+def run_final_test_evaluation(results: list[dict], plans: dict, val_records: list[dict]) -> list[dict]:
+    """Refit each dataset's best-on-validation model on train + val, then score it on the test set.
+
+    This is the one place the held-out test set is scored, and it is deliberately last: the winner
+    per dataset is chosen on validation cross-entropy only, and no hyperparameter is re-searched
+    here — the dataset's cached best params are reused, refit on the larger train+val sample.
+    Final models are persisted under a ``final__`` prefix so they never overwrite the train-only
+    models the validation benchmark reports on."""
+    by_dataset: dict[str, dict] = {}
+    for r in results:
+        if r["dataset"] not in by_dataset or r["loss"] < by_dataset[r["dataset"]]["loss"]:
+            by_dataset[r["dataset"]] = r
+
+    final_results = []
+    for slug, _method, _gran in DATASETS:
+        winner = by_dataset.get(slug)
+        if winner is None:
+            continue
+        name = winner["model"]
+        best_params = json.loads((OUTPUT_DIR / f"best_hyperparameters__{slug}.json").read_text())
+
+        X_trainval, Y_trainval, _ = assemble_xy(plans[(slug, "train")] + plans[(slug, "val")])
+        X_test, Y_test, test_stems = assemble_xy(plans[(slug, "test")])
+
+        pickle_path = OUTPUT_DIR / f"final__{model_slug(name)}__{slug}.pickle"
+        if pickle_path.exists():
+            with open(pickle_path, "rb") as f:
+                model = pickle.load(f)
+        else:
+            print(f"  refitting {name} on train+val for {slug} ({X_trainval.shape[0]} rows)...")
+            model = make_fixed(name, best_params[name], X_trainval.shape[0])
+            model.fit(X_trainval, Y_trainval)
+            with open(pickle_path, "wb") as f:
+                pickle.dump(model, f)
+
+        metrics = _evaluate(model, X_test, Y_test)
+        write_test_predictions(model, f"final__{name}", slug, X_test, Y_test, test_stems)
+        final_results.append({"model": name, "dataset": slug, "val_loss": winner["loss"], **metrics})
+        print(f"  {slug:22s} best={name:20s} val_loss={winner['loss']:.4f} -> test_loss={metrics['loss']:.4f}")
+
+    # Baseline base rates come from val, not test — the no-skill reference should not be tuned to
+    # the very labels it is a reference for.
+    baseline_avg, baseline_per_class = random_guess_baseline(val_records)
+    write_final_test_report(final_results, baseline_avg, baseline_per_class)
+    return final_results
+
+
+def write_final_test_report(results: list[dict], baseline_avg: float, baseline_per_class: list[float]) -> None:
+    baseline_cols = " ".join(f"{b:.2f}" for b in baseline_per_class)
+    dataset_order = {slug: i for i, (slug, _, _) in enumerate(DATASETS)}
+    lines = ["WORKING PAPER AUTHORSHIP — FINAL HELD-OUT TEST EVALUATION",
+             f"Countries: {', '.join(COUNTRIES)}",
+             "Per dataset: the model with the best validation cross-entropy, refit on train+val",
+             "and scored once on the held-out test set. Hyperparameters were not re-searched.",
+             f"Random-guess BCE baseline (validation base rates): {baseline_avg:.4f}  per-class[{baseline_cols}]",
+             f"Per-country recall / precision order: {', '.join(COUNTRIES)}",
+             "",
+             f"{'dataset':22s} {'best model':20s} {'val x-ent':>9s} {'test x-ent':>10s} {'test exact':>10s}  per-country recall / precision"]
+    ordered = sorted(results, key=lambda r: dataset_order[r["dataset"]])
+    for r in ordered:
+        rec = " ".join(f"{x:.2f}" for x in r["per_country_recall"])
+        prec = " ".join(f"{p:.2f}" for p in r["per_country_precision"])
+        lines.append(f"{r['dataset']:22s} {r['model']:20s} {r['val_loss']:9.4f} "
+                     f"{r['loss']:10.4f} {r['exact']:10.4f}  rec[{rec}] prec[{prec}]")
+    if ordered:
+        overall = min(ordered, key=lambda r: r["val_loss"])
+        lines += ["",
+                  f"Best overall on validation: {overall['model']} on {overall['dataset']} "
+                  f"(val {overall['val_loss']:.4f}) -> test cross-entropy {overall['loss']:.4f}"]
+    report = "\n".join(lines)
+    (OUTPUT_DIR / "final_test_report.txt").write_text(report)
+    print("\n" + report)
+    print(f"\nWrote final test report to {OUTPUT_DIR}/final_test_report.txt")
+
+
+def run_benchmark(final_test_eval: bool = False) -> list[dict]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading working papers + authors...")
     records = load_working_papers()
     train, val, test = split_documents(records)
-    print(f"  docs: {len(records)} (train {len(train)}, val {len(val)}, test {len(test)} [reserved])")
+    print(f"  docs: {len(records)} (train {len(train)}, val {len(val)}, test {len(test)} [held out])")
 
     # Collect every chunk across all datasets (train + val + test), dedupe, embed once.
     print("Chunking + collecting embedding work...")
@@ -382,9 +497,10 @@ def run_benchmark() -> list[dict]:
     # either way. Saved models are reused as-is on rerun.
     results = []
     for slug, method, gran in DATASETS:
-        X_train, Y_train = assemble_xy(plans[(slug, "train")])
-        X_val, Y_val = assemble_xy(plans[(slug, "val")])
-        print(f"\nDataset {slug}: train {X_train.shape}, val {X_val.shape}")
+        X_train, Y_train, _ = assemble_xy(plans[(slug, "train")])
+        X_val, Y_val, _ = assemble_xy(plans[(slug, "val")])
+        X_test, Y_test, test_stems = assemble_xy(plans[(slug, "test")])
+        print(f"\nDataset {slug}: train {X_train.shape}, val {X_val.shape}, test {X_test.shape}")
 
         hp_path = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
         if hp_path.exists():
@@ -406,7 +522,7 @@ def run_benchmark() -> list[dict]:
         for name in MODEL_NAMES:
             if name == "SVM" and not _svm_allowed(gran):
                 continue
-            pickle_path = OUTPUT_DIR / f"{_model_slug(name)}__{slug}.pickle"
+            pickle_path = OUTPUT_DIR / f"{model_slug(name)}__{slug}.pickle"
             if pickle_path.exists():
                 with open(pickle_path, "rb") as f:
                     model = pickle.load(f)
@@ -418,10 +534,16 @@ def run_benchmark() -> list[dict]:
 
             metrics = _evaluate(model, X_val, Y_val)
             results.append({"model": name, "dataset": slug, **metrics})
-            print(f"  {name:20s} loss={metrics['loss']:.4f} exact={metrics['exact']:.4f}")
+            pred_path = write_test_predictions(model, name, slug, X_test, Y_test, test_stems)
+            print(f"  {name:20s} loss={metrics['loss']:.4f} exact={metrics['exact']:.4f}"
+                  f"  test predictions -> {pred_path.name}")
 
     baseline_avg, baseline_per_class = random_guess_baseline(val)
     write_report(results, baseline_avg, baseline_per_class)
+
+    if final_test_eval:
+        print("\nFinal held-out test evaluation (refitting each dataset's best model on train+val)...")
+        run_final_test_evaluation(results, plans, val)
     return results
 
 
@@ -451,10 +573,19 @@ def write_report(results: list[dict], baseline_avg: float, baseline_per_class: l
     (OUTPUT_DIR / "report.txt").write_text(report)
     print("\n" + report)
     print(f"\nWrote report + {len(results)} models + per-dataset hyperparameters to {OUTPUT_DIR}/")
+    print(f"Wrote {len(results)} test-set prediction CSVs to {PREDICTIONS_DIR}/")
 
 
 def main():
-    run_benchmark()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--final-test-eval", action="store_true",
+        help="After the validation benchmark, refit each dataset's best-on-validation model on "
+             "train+val and score it once on the held-out test set, writing final_test_report.txt. "
+             "Off by default: every run of this touches the test set.",
+    )
+    args = parser.parse_args()
+    run_benchmark(final_test_eval=args.final_test_eval)
 
 
 if __name__ == "__main__":

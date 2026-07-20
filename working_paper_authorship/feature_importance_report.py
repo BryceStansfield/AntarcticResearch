@@ -1,20 +1,24 @@
 """Probe what each authorship classifier keys on in the PCA'd embedding space.
 
-For every cached best model we rank its PCA components by feature importance (native
-where available — forests' impurity/gain importances and logistic-regression
-coefficients — otherwise permutation importance), then for the top components show the
-working-paper segments that project most strongly positive and negative along them.
-Output is written to data/EmbeddingFeatureReport.txt.
+For every cached model — one per (model, dataset) pair trained by country_authorship_classifier —
+we rank its PCA components by feature importance (native where available: forests'
+impurity/gain importances and logistic-regression coefficients; otherwise permutation
+importance), then for the top components show the segments that project most strongly positive
+and negative along them.
+
+Segments are that dataset's *own* units (whole censored documents, or kept sentences), rebuilt
+through the classifier's own chunking so the text projected matches the text the PCA was fitted
+on. Run country_authorship_classifier first — this reads its pickles and embedding cache, and
+never trains. Output is written to data/EmbeddingFeatureReport.txt.
 """
+import json
 import pathlib
-import hashlib
+import pickle
 
 import numpy as np
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.inspection import permutation_importance
 
-import embeddings.document_embeddings as de
-from embeddings.document_embeddings import DocumentTextGetter, get_embeddings_by_type
 from working_paper_authorship import country_authorship_classifier as cc
 
 REPORT_PATH = pathlib.Path("data/EmbeddingFeatureReport.txt")
@@ -48,39 +52,25 @@ def component_importances(pipeline, X_val, Y_val) -> tuple[np.ndarray, str]:
         scoring=cc.neg_cross_entropy_scorer,
         random_state=PERMUTATION_RANDOM_STATE,
     )
-    return result.importances_mean, f"permutation importance"
+    return result.importances_mean, "permutation importance"
 
 
-def load_segment_embeddings() -> tuple[list[str], np.ndarray]:
-    """All working-paper segment embeddings, as (uuids, matrix)."""
-    pairs = get_embeddings_by_type("WorkingPaper")
-    uuids = [uuid for uuid, _ in pairs]
-    matrix = np.asarray([embedding for _, embedding in pairs], dtype=np.float32)
-    return uuids, matrix
+def load_dataset_segments(records: list[dict], method: str, granularity):
+    """Rebuild one dataset's units over `records`, as (X, Y, texts, stems).
+
+    Goes through the classifier's own dataset_units/assemble_xy, so the segments are exactly the
+    ones the dataset's PCA was fitted on — same censorship, same chunking, same hashes. ``texts``
+    stays row-aligned with X because assemble_xy raises on a missing embedding rather than
+    silently dropping the row."""
+    embed_units, hash_labels = cc.dataset_units(records, method, granularity)
+    by_hash = {h: text for h, _type, text in embed_units}
+    X, Y, stems = cc.assemble_xy(hash_labels)
+    texts = [by_hash[h] for h, _label, _stem in hash_labels]
+    return X, Y, texts, stems
 
 
-def segment_details(getter: DocumentTextGetter, uuid: str) -> tuple[dict, str]:
-    """Return (metadata, exact-segment-text) for a segment uuid. The embedding uuid is a
-    hash of one segment, so we re-split the source document and match it back."""
-    if uuid not in getter.wp_ip_map:
-        return {}, "[segment text unavailable]"
-    rep = getter.get_document_representation(uuid)
-    text = rep.get("text", "")
-    for segment in de.split_long_document(text):
-        if hashlib.sha256(segment.encode()).hexdigest() == uuid:
-            return rep, segment
-    return rep, text  # single-segment document, or hashing mismatch
-
-
-def format_meta(uuid: str, rep: dict) -> str:
-    bits = [f"uuid={uuid[:12]}"]
-    if rep.get("sort_string"):
-        bits.append(str(rep["sort_string"]))
-    if rep.get("parties") is not None:
-        bits.append(f"parties={rep['parties']}")
-    if rep.get("paper_language"):
-        bits.append(f"lang={rep['paper_language']}")
-    return " | ".join(bits)
+def format_meta(stem: str) -> str:
+    return f"paper={stem}"
 
 
 def format_snippet(text: str) -> str:
@@ -91,58 +81,75 @@ def format_snippet(text: str) -> str:
 
 
 def build_report() -> None:
-    results = cc.get_or_train_results()
-
-    # The validation split is needed for permutation importance (the SVM path).
-    X, Y = cc.load_data()
-    _, X_val, _, _, Y_val, _ = cc.split_data(X, Y)
-
-    getter = DocumentTextGetter()
-    uuids, embeddings = load_segment_embeddings()
+    records = cc.load_working_papers()
+    train, val, _test = cc.split_documents(records)
+    # Segments are drawn from train + val, giving the component exploration a wide pool to find
+    # extremes in. The test split is left out so this report can be rerun freely without eroding it.
+    projection_records = train + val
+    val_stems = {r["stem"] for r in val}
 
     lines: list[str] = [
         "WORKING PAPER AUTHORSHIP — EMBEDDING FEATURE REPORT",
         f"Countries: {', '.join(cc.COUNTRIES)}",
-        f"Working-paper segments projected: {len(uuids)}",
+        f"Segments projected per dataset: train + val documents ({len(projection_records)} papers)",
         f"Top components per model: {TOP_COMPONENTS} | extreme segments per component: {TOP_SEGMENTS}",
+        "Importances and cross-entropy are computed on the validation split alone.",
         "",
-        "PCA dimensions retained per model:",
     ]
-    for r in results["models"]:
-        lines.append(f"  {r['name']}: {r['model'].named_steps['pca'].n_components_}")
-    lines.append("")
 
-    for r in results["models"]:
-        name, pipeline = r["name"], r["model"]
-        pca = pipeline.named_steps["pca"]
+    for slug, censorship, granularity in cc.DATASETS:
+        # Which models exist for this dataset. Checked before any chunking, because rebuilding
+        # segments re-runs censorship and the semantic filter — expensive work to do for a dataset
+        # the benchmark has not trained yet (and assemble_xy would then raise on its missing
+        # embeddings anyway). SVM is legitimately absent on the per-sentence dataset.
+        trained = [n for n in cc.MODEL_NAMES
+                   if (cc.OUTPUT_DIR / f"{cc.model_slug(n)}__{slug}.pickle").exists()]
+        if not trained:
+            print(f"Skipping {slug}: no trained models in {cc.OUTPUT_DIR}/ — run the benchmark first.")
+            continue
+        hp_path = cc.OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
+        best_params = json.loads(hp_path.read_text()) if hp_path.exists() else {}
 
-        print(f"Computing importances for {name}...")
-        importances, method = component_importances(pipeline, X_val, Y_val)
-        n_show = min(TOP_COMPONENTS, importances.shape[0])
-        top_components = np.argsort(importances)[::-1][:n_show]
+        print(f"Rebuilding segments for {slug}...")
+        # Built once over train + val: the projection pool. The validation rows used for
+        # importances and loss are then masked out of it, rather than rebuilt — chunking re-runs
+        # censorship and the semantic filter, so doing it twice would be needless expense.
+        X_proj, Y_proj, texts, stems = load_dataset_segments(projection_records, censorship, granularity)
+        val_mask = np.array([s in val_stems for s in stems])
+        X_val, Y_val = X_proj[val_mask], Y_proj[val_mask]
 
-        projection = pca.transform(embeddings)  # (n_segments, n_components)
+        for name in trained:
+            with open(cc.OUTPUT_DIR / f"{cc.model_slug(name)}__{slug}.pickle", "rb") as f:
+                pipeline = pickle.load(f)
+            pca = pipeline.named_steps["pca"]
 
-        lines.append("=" * 80)
-        lines.append(f"MODEL: {name}")
-        lines.append(f"Validation cross-entropy: {r['loss']:.4f} | best params: {r['best_params']}")
-        lines.append(f"PCA components retained: {pca.n_components_}")
-        lines.append(f"Importance method: {method}")
-        lines.append("")
+            print(f"  computing importances for {name} on {slug}...")
+            importances, importance_method = component_importances(pipeline, X_val, Y_val)
+            n_show = min(TOP_COMPONENTS, importances.shape[0])
+            top_components = np.argsort(importances)[::-1][:n_show]
 
-        for k in top_components:
-            column = projection[:, k]
-            order = np.argsort(column)
-            lines.append(f"  PCA component #{int(k)}  (importance {importances[k]:.5f})")
-            for header, idxs in (("HIGHEST-projecting segments", order[::-1][:TOP_SEGMENTS]),
-                                 ("LOWEST-projecting segments", order[:TOP_SEGMENTS])):
-                lines.append(f"    --- {header} ---")
-                for idx in idxs:
-                    uuid = uuids[idx]
-                    rep, segment = segment_details(getter, uuid)
-                    lines.append(f"      [{column[idx]:+.3f}] {format_meta(uuid, rep)}")
-                    lines.append(format_snippet(segment))
+            projection = pca.transform(X_proj)  # (n_segments, n_components)
+            loss = cc.mean_cross_entropy(Y_val, cc.positive_proba(pipeline, X_val))
+
+            lines.append("=" * 80)
+            lines.append(f"MODEL: {name}  |  DATASET: {slug}")
+            lines.append(f"Segments projected: {len(texts)}")
+            lines.append(f"Validation cross-entropy: {loss:.4f} | best params: {best_params.get(name, '[unknown]')}")
+            lines.append(f"PCA components retained: {pca.n_components_}")
+            lines.append(f"Importance method: {importance_method}")
             lines.append("")
+
+            for k in top_components:
+                column = projection[:, k]
+                order = np.argsort(column)
+                lines.append(f"  PCA component #{int(k)}  (importance {importances[k]:.5f})")
+                for header, idxs in (("HIGHEST-projecting segments", order[::-1][:TOP_SEGMENTS]),
+                                     ("LOWEST-projecting segments", order[:TOP_SEGMENTS])):
+                    lines.append(f"    --- {header} ---")
+                    for idx in idxs:
+                        lines.append(f"      [{column[idx]:+.3f}] {format_meta(stems[idx])}")
+                        lines.append(format_snippet(texts[idx]))
+                lines.append("")
 
     REPORT_PATH.write_text("\n".join(lines))
     print(f"Wrote {REPORT_PATH} ({len(lines)} lines)")
