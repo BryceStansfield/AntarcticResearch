@@ -21,9 +21,9 @@ class WorkingPaperAuthorship():
                 for p in pl:
                     p = country_meta_info.normalize_country_name(p)
                     if (i, p) in self.country_authorships_by_year:
-                        self.country_authorships_by_year[(i, p)] += 1/len(pl)
+                        self.country_authorships_by_year[(i, p)] += 1
                     else:
-                        self.country_authorships_by_year[(i, p)] = 1/len(pl)
+                        self.country_authorships_by_year[(i, p)] = 1
         
         self.country_authorships = {}
         for k in self.country_authorships_by_year:
@@ -79,9 +79,9 @@ class WPCollaborationGraphCentrality():
                         c2 = author_set[j]
                     
                     if (c1, c2) in edge_weights:
-                        edge_weights[(c1, c2,)] += 1/len(author_set)
+                        edge_weights[(c1, c2,)] += 1
                     else:
-                        edge_weights[(c1, c2,)] = 1/len(author_set)
+                        edge_weights[(c1, c2,)] = 1
         
         # Normalizing our graph decreases our eigenvalues and allows us to use higher attenuation factors.
         max_edge_weight = max(edge_weights.values())

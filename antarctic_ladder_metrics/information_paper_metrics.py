@@ -19,7 +19,7 @@ class InformationPaperAuthorship():
             for pl in authors:
                 for p in pl:
                     p = country_meta_info.normalize_country_name(p)
-                    self.yearly_country_authorships[(year, p)] = self.yearly_country_authorships.get((year, p), 0) + 1/len(pl)
+                    self.yearly_country_authorships[(year, p)] = self.yearly_country_authorships.get((year, p), 0) + 1
 
         self.country_authorships = {}
         for k in self.yearly_country_authorships:

@@ -82,7 +82,7 @@ class TopicIntroduction():
             y = d["year"]
             for party in d["parties"]:
                 party = country_meta_info.normalize_country_name(party)
-                self.yearly_topic_introduction_count[(y, party)] = self.yearly_topic_introduction_count.get((y, party), 0) + 1/len(d["parties"])
+                self.yearly_topic_introduction_count[(y, party)] = self.yearly_topic_introduction_count.get((y, party), 0) + d["parties"]
         
         self.topic_introduction_count = {}
         for k in self.yearly_topic_introduction_count:

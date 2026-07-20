@@ -39,7 +39,7 @@ class MeasureWPIntroducers():
             for distance, parties in kept:
                 doc_weight = (1/distance) / weight_normaliser
                 for p in parties:
-                    self.country_sums[p] = self.country_sums.get(p, 0) + (1/len(parties)) * doc_weight
+                    self.country_sums[p] = self.country_sums.get(p, 0) + doc_weight
 
     def country_dict(self) -> dict:
         return dict(self.country_sums)
