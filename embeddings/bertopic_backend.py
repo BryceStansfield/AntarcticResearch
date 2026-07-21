@@ -47,10 +47,37 @@ import hashlib
 
 import numpy as np
 from bertopic.backend import BaseEmbedder
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer
 
 import embeddings.document_embeddings as document_embeddings
 
 REPRESENTATION_TYPE = "BERTopicRepr"
+
+# ATCM documents carry a masthead repeating the meeting's name in English,
+# Spanish, French and Russian ("ANTARCTIC TREATY / TRATADO ANTARTICO / FOURTH
+# CONSULTATIVE MEETING / CUARTA REUNION CONSULTIVA / QUATRIEME REUNION
+# CONSULTATIVE / TRAITE SUR L'ANTARCTIQUE"). In short early papers that
+# boilerplate is a large fraction of the text, so its tokens dominate the
+# c-TF-IDF labels of any cluster of same-meeting documents.
+#
+# Only the non-English tokens are listed. English masthead words ("antarctic",
+# "treaty", "meeting", "consultative") are left in: they are ordinary content
+# words elsewhere in the corpus, and dropping them would blind the labels to
+# real topics. This affects labels only -- clustering runs on the embeddings.
+MASTHEAD_STOP_WORDS = frozenset({
+    "tratado", "antartico", "cuarta", "reunion", "consultiva",
+    "traite", "quatrieme", "antarctique",
+    "la", "las", "los", "el", "les", "del", "sur", "en", "du", "des",
+})
+
+
+def topic_vectorizer(min_df: int = 2) -> CountVectorizer:
+    """Shared c-TF-IDF vectoriser, so the working-paper model and the combined
+    working-paper + instrument model label topics on the same basis."""
+    return CountVectorizer(
+        stop_words=list(ENGLISH_STOP_WORDS | MASTHEAD_STOP_WORDS),
+        min_df=min_df,
+    )
 
 # SQLite caps host parameters per statement; stay well under it.
 _SQL_CHUNK = 900

@@ -1,10 +1,9 @@
 """BERTopic over OCR'd documents using OpenRouter qwen/qwen3-embedding-8b embeddings."""
 from bertopic import BERTopic
-from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
-from embeddings.bertopic_backend import OpenRouterBackend
+from embeddings.bertopic_backend import OpenRouterBackend, topic_vectorizer
 import country_meta_info
 
 import pandas as pd
@@ -33,7 +32,7 @@ class WPBertTopic():
         # TopicIntroduction and TopicDiversity read the HDBSCAN assignments,
         # which representation models never touch -- while costing thousands of
         # per-word embedding calls.
-        self.topic_model = BERTopic(embedding_model=OpenRouterBackend(), umap_model=umap_model, min_topic_size=5, vectorizer_model=CountVectorizer(stop_words="english", min_df=2), verbose=True)
+        self.topic_model = BERTopic(embedding_model=OpenRouterBackend(), umap_model=umap_model, min_topic_size=5, vectorizer_model=topic_vectorizer(), verbose=True)
         self.topics, self.probs = self.topic_model.fit_transform([d["text"] for d in self.documents])
 
 _WPBertTopicInstance = None
