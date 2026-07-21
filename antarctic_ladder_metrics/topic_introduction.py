@@ -1,34 +1,15 @@
-"""BERTopic over OCR'd documents using OpenRouter qwen/qwen3-embedding-4b embeddings."""
-import numpy as np
+"""BERTopic over OCR'd documents using OpenRouter qwen/qwen3-embedding-8b embeddings."""
 from bertopic import BERTopic
-from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
+from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
+from embeddings.bertopic_backend import OpenRouterBackend
 import country_meta_info
 
 import pandas as pd
 
 from utils import split_parties
-
-class OpenRouterEmbedder:
-    """BERTopic-compatible embedder backed by document_embeddings.py + OpenRouter."""
-
-    def __init__(self, type) -> None:
-        self.type = type
-    
-    def encode(self, documents: list[str], show_progress_bar: bool = False) -> np.ndarray:
-        vectors = []
-        for i, text in enumerate(documents):
-            # Stable UUID derived from content so embeddings are cached across runs.
-            args = document_embeddings.get_wp_ip_embedding_args(text, "WorkingPaper")[0]
-            vec = document_embeddings.get_or_generate_embedding(
-                *args
-            )
-            vectors.append(vec)
-            if show_progress_bar and (i + 1) % 10 == 0:
-                print(f"  Embedded {i + 1}/{len(documents)}")
-        return np.array(vectors, dtype="float32")
 
 class WPBertTopic():
     def __init__(self):
@@ -37,7 +18,22 @@ class WPBertTopic():
         self.documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
 
         umap_model = UMAP(random_state=42)
-        self.topic_model = BERTopic(embedding_model=OpenRouterEmbedder("WorkingPaper"), umap_model=umap_model, min_topic_size=5, representation_model=[MaximalMarginalRelevance(diversity=0.9, top_n_words=10), KeyBERTInspired()], verbose=True)
+        # OpenRouterBackend subclasses BERTopic's BaseEmbedder. That matters: a
+        # duck-typed embedder (just an `.encode` method) is not recognised by
+        # bertopic.backend.select_backend, which silently falls through to
+        # all-MiniLM-L6-v2 -- so the model would run on 384-dim MiniLM with a
+        # 256-token input limit instead of these Qwen3-8B embeddings.
+        #
+        # Labels come from c-TF-IDF. Embedding-based representation (MMR /
+        # KeyBERTInspired) was tried and rejected: it ranks candidate words by
+        # similarity to the topic centroid, which in an all-Antarctic corpus
+        # promotes corpus-wide vocabulary ("antarctic" reached the top-10 of 112
+        # of 164 topics in the combined WP+measure model, versus 4 under
+        # c-TF-IDF). It also only ever affected the topic_test.txt report --
+        # TopicIntroduction and TopicDiversity read the HDBSCAN assignments,
+        # which representation models never touch -- while costing thousands of
+        # per-word embedding calls.
+        self.topic_model = BERTopic(embedding_model=OpenRouterBackend(), umap_model=umap_model, min_topic_size=5, vectorizer_model=CountVectorizer(stop_words="english", min_df=2), verbose=True)
         self.topics, self.probs = self.topic_model.fit_transform([d["text"] for d in self.documents])
 
 _WPBertTopicInstance = None
