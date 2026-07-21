@@ -4,10 +4,17 @@ Fits a single topic model across both document classes so that a topic is a
 shared concept rather than a per-corpus artefact, then reports the
 instrument/Working-Paper composition of every topic.
 
-Unlike ``antarctic_ladder_metrics/topic_introduction.py`` this re-uses the
-embeddings already cached in ``data/document_embeddings.sqlite3`` instead of
-re-requesting them, so it needs no API key and is deterministic given a fixed
-embedding table (UMAP is seeded).
+Like ``antarctic_ladder_metrics/topic_introduction.py``, this runs on the Qwen
+embeddings already cached in ``data/document_embeddings.sqlite3`` -- neither
+re-requests them, since ``embed_all_documents.py`` populates that table up front.
+Both are deterministic given a fixed embedding table (UMAP is seeded).
+
+The difference is how the vectors are fetched. This script reads them straight
+out of sqlite by document type and pools a document's segments itself, so it
+never touches the network and needs no API key at all. ``topic_introduction.py``
+hands raw text to BERTopic and lets ``OpenRouterBackend`` resolve it, which means
+re-tokenising long documents to recover their segment keys, and an API call for
+anything not already cached.
 
 Outputs (to ``adhoc_analyses/output/``):
   * ``combined_topic_breakdown.csv``  — one row per topic, instrument/WP counts
