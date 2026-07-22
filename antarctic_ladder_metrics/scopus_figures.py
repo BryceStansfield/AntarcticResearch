@@ -2,10 +2,18 @@ from itertools import groupby
 
 import pandas as pd
 import country_meta_info
+from antarctic_ladder_metrics.constants import END_YEAR
+
+# The Scopus export is capped at 20k rows, which truncates its earliest year: 2012
+# holds 49 documents against a ~1400/year norm, so including it would read as a
+# collapse in output rather than an export artifact. 2013 is the first complete
+# year. The upper bound tracks the ladder's END_YEAR, which has complete data
+SCOPUS_START_YEAR = 2013
 
 class ScopusFigures():
     def __init__(self, report: bool = False) -> None:
         scopus_table = pd.read_csv("data/scopus_export.csv")
+        scopus_table = scopus_table[(scopus_table["Year"] >= SCOPUS_START_YEAR) & (scopus_table["Year"] <= END_YEAR)]
         country_names = [c.lower() for c in country_meta_info.get_list_of_country_names()]
         
         # Map each name to its canonical country so grammatical variants and alternative
@@ -21,7 +29,8 @@ class ScopusFigures():
         keys = sorted(str_to_country.keys(), key=len, reverse=True)
         keys_by_length = [list(g) for _, g in groupby(keys, key=len)]
 
-        self.country_counts = {}
+        # Keyed (publication_year, country)
+        self.country_counts_by_year = {}
 
         unresolved = []
         ambiguous = []
@@ -29,7 +38,7 @@ class ScopusFigures():
         # keys, vals and affiliations assumed lower.
         # Count each country at most once per document to avoid double counting a
         # document that lists several affiliations from the same country.
-        for affiliations in scopus_table["Affiliations"].fillna('').tolist():
+        for year, affiliations in zip(scopus_table["Year"].tolist(), scopus_table["Affiliations"].fillna('').tolist()):
             document_countries = set()
 
             for affiliation in [a.lower() for a in affiliations.split(';') if a != '']:
@@ -55,7 +64,12 @@ class ScopusFigures():
                     unresolved.append(affiliation)
 
             for country in document_countries:
-                self.country_counts[country] = self.country_counts.get(country, 0) + 1
+                key = (year, country)
+                self.country_counts_by_year[key] = self.country_counts_by_year.get(key, 0) + 1
+
+        self.country_counts = {}
+        for (_, country), count in self.country_counts_by_year.items():
+            self.country_counts[country] = self.country_counts.get(country, 0) + count
 
         if report:
             print(f"Unresolved affiliations ({len(unresolved)}):")
@@ -68,6 +82,12 @@ class ScopusFigures():
 
     def figure_title(self) -> str:
         return "Affiliated Research Items"
+
+    def save_full_figures(self, path: str):
+        yearly_figures = sorted(
+            ({"year": int(k[0]), "country": k[1], "value": v} for k, v in self.country_counts_by_year.items()),
+            key=lambda r: (r["year"], r["country"]))
+        pd.DataFrame(yearly_figures).to_csv(path)
 
 if __name__ == "__main__":
     ScopusFigures()
