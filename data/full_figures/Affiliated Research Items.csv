@@ -1,0 +1,886 @@
+,year,country,value
+0,2013,argentina,53
+1,2013,armenia,1
+2,2013,australia,142
+3,2013,austria,18
+4,2013,barbados,2
+5,2013,belarus,1
+6,2013,belgium,45
+7,2013,bolivia,2
+8,2013,brazil,46
+9,2013,bulgaria,4
+10,2013,canada,74
+11,2013,chile,38
+12,2013,china,111
+13,2013,colombia,6
+14,2013,costa rica,1
+15,2013,croatia,1
+16,2013,czechia,12
+17,2013,denmark,30
+18,2013,ecuador,1
+19,2013,egypt,1
+20,2013,estonia,7
+21,2013,finland,25
+22,2013,france,132
+23,2013,gambia,1
+24,2013,germany,170
+25,2013,greece,4
+26,2013,guatemala,1
+27,2013,hungary,6
+28,2013,iceland,1
+29,2013,india,48
+30,2013,indonesia,2
+31,2013,iran,3
+32,2013,ireland,5
+33,2013,israel,3
+34,2013,italy,95
+35,2013,jamaica,1
+36,2013,japan,99
+37,2013,kenya,1
+38,2013,lebanon,1
+39,2013,madagascar,1
+40,2013,malaysia,15
+41,2013,mexico,5
+42,2013,mongolia,2
+43,2013,morocco,1
+44,2013,mozambique,2
+45,2013,namibia,1
+46,2013,netherlands,51
+47,2013,new zealand,97
+48,2013,niger,1
+49,2013,nigeria,1
+50,2013,norway,52
+51,2013,peru,1
+52,2013,poland,30
+53,2013,portugal,14
+54,2013,republic of korea,41
+55,2013,romania,8
+56,2013,russia,35
+57,2013,saudi arabia,1
+58,2013,serbia,3
+59,2013,singapore,1
+60,2013,south africa,31
+61,2013,spain,129
+62,2013,sweden,46
+63,2013,switzerland,35
+64,2013,taiwan,4
+65,2013,tanzania,1
+66,2013,thailand,1
+67,2013,tunisia,2
+68,2013,turkey,6
+69,2013,ukraine,3
+70,2013,united arab emirates,1
+71,2013,united kingdom,270
+72,2013,united states,459
+73,2013,uruguay,5
+74,2013,venezuela,2
+75,2013,zimbabwe,1
+76,2014,argentina,49
+77,2014,australia,165
+78,2014,austria,9
+79,2014,belgium,30
+80,2014,bolivia,2
+81,2014,brazil,47
+82,2014,bulgaria,5
+83,2014,canada,57
+84,2014,chile,37
+85,2014,china,103
+86,2014,colombia,4
+87,2014,croatia,2
+88,2014,cuba,1
+89,2014,cyprus,1
+90,2014,czechia,11
+91,2014,denmark,26
+92,2014,ecuador,3
+93,2014,egypt,1
+94,2014,estonia,2
+95,2014,ethiopia,1
+96,2014,finland,15
+97,2014,france,108
+98,2014,germany,161
+99,2014,greece,2
+100,2014,iceland,3
+101,2014,india,40
+102,2014,iran,2
+103,2014,israel,3
+104,2014,italy,70
+105,2014,japan,61
+106,2014,lithuania,1
+107,2014,luxembourg,1
+108,2014,malaysia,7
+109,2014,maldives,1
+110,2014,mexico,8
+111,2014,monaco,2
+112,2014,nepal,1
+113,2014,netherlands,46
+114,2014,new zealand,99
+115,2014,norway,41
+116,2014,panama,1
+117,2014,papua new guinea,1
+118,2014,peru,6
+119,2014,poland,31
+120,2014,portugal,18
+121,2014,republic of korea,41
+122,2014,romania,3
+123,2014,russia,45
+124,2014,samoa,1
+125,2014,saudi arabia,1
+126,2014,serbia,2
+127,2014,singapore,1
+128,2014,slovenia,1
+129,2014,south africa,21
+130,2014,spain,81
+131,2014,sri lanka,1
+132,2014,sweden,37
+133,2014,switzerland,35
+134,2014,taiwan,5
+135,2014,thailand,2
+136,2014,tonga,2
+137,2014,turkey,1
+138,2014,ukraine,5
+139,2014,united arab emirates,1
+140,2014,united kingdom,237
+141,2014,united states,444
+142,2014,uruguay,3
+143,2014,venezuela,1
+144,2015,albania,1
+145,2015,argentina,57
+146,2015,australia,161
+147,2015,austria,13
+148,2015,bangladesh,1
+149,2015,belgium,41
+150,2015,brazil,63
+151,2015,bulgaria,3
+152,2015,canada,70
+153,2015,chile,38
+154,2015,china,122
+155,2015,colombia,5
+156,2015,croatia,1
+157,2015,cuba,2
+158,2015,cyprus,1
+159,2015,czechia,19
+160,2015,denmark,30
+161,2015,ecuador,3
+162,2015,egypt,4
+163,2015,estonia,1
+164,2015,finland,14
+165,2015,france,107
+166,2015,germany,157
+167,2015,greece,3
+168,2015,honduras,1
+169,2015,hungary,3
+170,2015,iceland,3
+171,2015,india,41
+172,2015,indonesia,1
+173,2015,iran,4
+174,2015,ireland,1
+175,2015,israel,2
+176,2015,italy,100
+177,2015,japan,76
+178,2015,lithuania,1
+179,2015,malaysia,9
+180,2015,maldives,1
+181,2015,mexico,4
+182,2015,monaco,1
+183,2015,mozambique,1
+184,2015,netherlands,49
+185,2015,new zealand,94
+186,2015,nigeria,1
+187,2015,norway,39
+188,2015,peru,1
+189,2015,philippines,1
+190,2015,poland,37
+191,2015,portugal,19
+192,2015,republic of korea,56
+193,2015,romania,1
+194,2015,russia,43
+195,2015,saudi arabia,2
+196,2015,serbia,1
+197,2015,slovakia,2
+198,2015,slovenia,2
+199,2015,south africa,22
+200,2015,spain,71
+201,2015,sri lanka,1
+202,2015,sweden,32
+203,2015,switzerland,38
+204,2015,taiwan,4
+205,2015,thailand,2
+206,2015,turkey,1
+207,2015,ukraine,5
+208,2015,united arab emirates,2
+209,2015,united kingdom,239
+210,2015,united states,415
+211,2015,uruguay,2
+212,2015,venezuela,1
+213,2016,albania,1
+214,2016,algeria,1
+215,2016,argentina,58
+216,2016,australia,188
+217,2016,austria,17
+218,2016,belgium,48
+219,2016,brazil,56
+220,2016,brunei,1
+221,2016,bulgaria,3
+222,2016,canada,76
+223,2016,chile,56
+224,2016,china,142
+225,2016,colombia,5
+226,2016,cuba,2
+227,2016,czechia,33
+228,2016,denmark,40
+229,2016,ecuador,2
+230,2016,egypt,1
+231,2016,estonia,3
+232,2016,fiji,1
+233,2016,finland,15
+234,2016,france,118
+235,2016,georgia,1
+236,2016,germany,158
+237,2016,greece,2
+238,2016,hungary,10
+239,2016,iceland,3
+240,2016,india,22
+241,2016,iran,3
+242,2016,ireland,4
+243,2016,israel,6
+244,2016,italy,97
+245,2016,japan,63
+246,2016,lebanon,1
+247,2016,luxembourg,1
+248,2016,malaysia,13
+249,2016,mexico,9
+250,2016,monaco,1
+251,2016,mongolia,2
+252,2016,morocco,1
+253,2016,netherlands,30
+254,2016,new zealand,85
+255,2016,nigeria,2
+256,2016,norway,41
+257,2016,panama,1
+258,2016,peru,1
+259,2016,poland,30
+260,2016,portugal,23
+261,2016,republic of korea,65
+262,2016,romania,2
+263,2016,russia,38
+264,2016,saudi arabia,8
+265,2016,singapore,4
+266,2016,slovakia,4
+267,2016,slovenia,2
+268,2016,south africa,27
+269,2016,spain,69
+270,2016,sweden,43
+271,2016,switzerland,36
+272,2016,taiwan,6
+273,2016,tanzania,1
+274,2016,thailand,1
+275,2016,turkey,3
+276,2016,ukraine,4
+277,2016,united arab emirates,3
+278,2016,united kingdom,256
+279,2016,united states,454
+280,2016,uruguay,7
+281,2016,venezuela,2
+282,2016,vietnam,1
+283,2017,algeria,2
+284,2017,argentina,79
+285,2017,australia,177
+286,2017,austria,26
+287,2017,belarus,1
+288,2017,belgium,40
+289,2017,brazil,77
+290,2017,bulgaria,5
+291,2017,canada,57
+292,2017,chile,65
+293,2017,china,106
+294,2017,colombia,5
+295,2017,costa rica,2
+296,2017,croatia,1
+297,2017,cyprus,2
+298,2017,czechia,25
+299,2017,denmark,36
+300,2017,ecuador,3
+301,2017,egypt,1
+302,2017,estonia,3
+303,2017,ethiopia,1
+304,2017,finland,17
+305,2017,france,109
+306,2017,germany,154
+307,2017,greece,3
+308,2017,hungary,7
+309,2017,iceland,1
+310,2017,india,19
+311,2017,indonesia,2
+312,2017,iran,2
+313,2017,ireland,4
+314,2017,israel,4
+315,2017,italy,124
+316,2017,japan,75
+317,2017,lithuania,1
+318,2017,malaysia,9
+319,2017,maldives,1
+320,2017,mexico,12
+321,2017,monaco,2
+322,2017,morocco,1
+323,2017,netherlands,53
+324,2017,new zealand,81
+325,2017,nigeria,1
+326,2017,norway,47
+327,2017,pakistan,1
+328,2017,panama,2
+329,2017,peru,3
+330,2017,poland,27
+331,2017,portugal,29
+332,2017,republic of korea,61
+333,2017,romania,3
+334,2017,russia,57
+335,2017,saudi arabia,3
+336,2017,senegal,1
+337,2017,serbia,3
+338,2017,singapore,2
+339,2017,slovenia,1
+340,2017,south africa,25
+341,2017,spain,98
+342,2017,sri lanka,1
+343,2017,sweden,43
+344,2017,switzerland,42
+345,2017,taiwan,7
+346,2017,thailand,1
+347,2017,turkey,5
+348,2017,ukraine,5
+349,2017,united arab emirates,3
+350,2017,united kingdom,285
+351,2017,united states,475
+352,2017,uruguay,4
+353,2017,venezuela,1
+354,2017,vietnam,1
+355,2018,algeria,1
+356,2018,argentina,72
+357,2018,australia,152
+358,2018,austria,14
+359,2018,belgium,44
+360,2018,brazil,89
+361,2018,bulgaria,3
+362,2018,canada,55
+363,2018,chile,71
+364,2018,china,144
+365,2018,colombia,5
+366,2018,costa rica,1
+367,2018,croatia,1
+368,2018,cyprus,1
+369,2018,czechia,22
+370,2018,denmark,29
+371,2018,ecuador,3
+372,2018,estonia,4
+373,2018,fiji,1
+374,2018,finland,22
+375,2018,france,125
+376,2018,germany,159
+377,2018,greece,2
+378,2018,hungary,4
+379,2018,iceland,2
+380,2018,india,52
+381,2018,indonesia,1
+382,2018,iran,5
+383,2018,ireland,4
+384,2018,israel,5
+385,2018,italy,95
+386,2018,japan,54
+387,2018,luxembourg,1
+388,2018,malaysia,24
+389,2018,mexico,9
+390,2018,monaco,1
+391,2018,mongolia,1
+392,2018,mozambique,2
+393,2018,netherlands,65
+394,2018,new zealand,80
+395,2018,nigeria,3
+396,2018,norway,50
+397,2018,pakistan,2
+398,2018,panama,5
+399,2018,peru,1
+400,2018,poland,40
+401,2018,portugal,15
+402,2018,republic of korea,56
+403,2018,romania,6
+404,2018,russia,50
+405,2018,saudi arabia,3
+406,2018,serbia,1
+407,2018,seychelles,1
+408,2018,singapore,2
+409,2018,slovakia,2
+410,2018,south africa,27
+411,2018,spain,78
+412,2018,sweden,43
+413,2018,switzerland,30
+414,2018,taiwan,5
+415,2018,tonga,1
+416,2018,tunisia,1
+417,2018,turkey,5
+418,2018,ukraine,6
+419,2018,united arab emirates,1
+420,2018,united kingdom,237
+421,2018,united states,432
+422,2018,uruguay,6
+423,2018,venezuela,2
+424,2018,vietnam,1
+425,2019,albania,1
+426,2019,algeria,1
+427,2019,argentina,71
+428,2019,australia,192
+429,2019,austria,21
+430,2019,belarus,1
+431,2019,belgium,42
+432,2019,brazil,92
+433,2019,bulgaria,3
+434,2019,canada,65
+435,2019,chile,83
+436,2019,china,191
+437,2019,colombia,4
+438,2019,costa rica,1
+439,2019,croatia,2
+440,2019,cuba,1
+441,2019,czechia,30
+442,2019,denmark,28
+443,2019,ecuador,2
+444,2019,egypt,2
+445,2019,estonia,1
+446,2019,fiji,1
+447,2019,finland,15
+448,2019,france,111
+449,2019,germany,187
+450,2019,greece,4
+451,2019,hungary,1
+452,2019,iceland,3
+453,2019,india,43
+454,2019,indonesia,4
+455,2019,iran,2
+456,2019,iraq,1
+457,2019,ireland,3
+458,2019,israel,1
+459,2019,italy,102
+460,2019,japan,71
+461,2019,latvia,1
+462,2019,malawi,1
+463,2019,malaysia,19
+464,2019,malta,1
+465,2019,mexico,8
+466,2019,morocco,1
+467,2019,mozambique,1
+468,2019,nepal,1
+469,2019,netherlands,49
+470,2019,new zealand,78
+471,2019,nigeria,3
+472,2019,norway,49
+473,2019,pakistan,1
+474,2019,panama,2
+475,2019,peru,5
+476,2019,poland,27
+477,2019,portugal,28
+478,2019,republic of korea,72
+479,2019,romania,3
+480,2019,russia,46
+481,2019,saudi arabia,4
+482,2019,singapore,3
+483,2019,south africa,32
+484,2019,spain,92
+485,2019,sri lanka,1
+486,2019,sweden,47
+487,2019,switzerland,37
+488,2019,taiwan,7
+489,2019,thailand,4
+490,2019,turkey,5
+491,2019,uganda,1
+492,2019,ukraine,12
+493,2019,united arab emirates,2
+494,2019,united kingdom,258
+495,2019,united states,457
+496,2019,uruguay,9
+497,2019,uzbekistan,1
+498,2019,vietnam,3
+499,2020,algeria,2
+500,2020,angola,1
+501,2020,argentina,82
+502,2020,australia,161
+503,2020,austria,15
+504,2020,bangladesh,1
+505,2020,belarus,3
+506,2020,belgium,56
+507,2020,brazil,94
+508,2020,bulgaria,9
+509,2020,canada,54
+510,2020,chile,94
+511,2020,china,198
+512,2020,colombia,6
+513,2020,costa rica,1
+514,2020,croatia,2
+515,2020,cyprus,1
+516,2020,czechia,29
+517,2020,denmark,27
+518,2020,ecuador,6
+519,2020,egypt,2
+520,2020,el salvador,2
+521,2020,estonia,2
+522,2020,ethiopia,1
+523,2020,finland,17
+524,2020,france,135
+525,2020,georgia,2
+526,2020,germany,181
+527,2020,greece,4
+528,2020,hungary,1
+529,2020,iceland,1
+530,2020,india,45
+531,2020,indonesia,1
+532,2020,iran,2
+533,2020,iraq,1
+534,2020,ireland,11
+535,2020,israel,7
+536,2020,italy,94
+537,2020,japan,100
+538,2020,latvia,1
+539,2020,luxembourg,3
+540,2020,malaysia,21
+541,2020,mexico,6
+542,2020,monaco,2
+543,2020,netherlands,54
+544,2020,new zealand,88
+545,2020,nigeria,4
+546,2020,norway,68
+547,2020,pakistan,1
+548,2020,peru,4
+549,2020,poland,31
+550,2020,portugal,26
+551,2020,republic of korea,69
+552,2020,romania,1
+553,2020,russia,69
+554,2020,saudi arabia,3
+555,2020,serbia,3
+556,2020,singapore,4
+557,2020,slovakia,1
+558,2020,south africa,36
+559,2020,spain,89
+560,2020,sri lanka,1
+561,2020,sweden,34
+562,2020,switzerland,43
+563,2020,taiwan,6
+564,2020,thailand,2
+565,2020,tunisia,1
+566,2020,turkey,8
+567,2020,uganda,1
+568,2020,ukraine,17
+569,2020,united arab emirates,3
+570,2020,united kingdom,293
+571,2020,united states,472
+572,2020,uruguay,8
+573,2020,vietnam,2
+574,2020,yemen,1
+575,2021,argentina,80
+576,2021,australia,184
+577,2021,austria,18
+578,2021,belarus,5
+579,2021,belgium,62
+580,2021,brazil,102
+581,2021,bulgaria,5
+582,2021,canada,72
+583,2021,chile,90
+584,2021,china,241
+585,2021,colombia,14
+586,2021,costa rica,1
+587,2021,croatia,2
+588,2021,czechia,28
+589,2021,denmark,49
+590,2021,ecuador,5
+591,2021,estonia,1
+592,2021,finland,26
+593,2021,france,148
+594,2021,georgia,1
+595,2021,germany,205
+596,2021,greece,2
+597,2021,hungary,1
+598,2021,iceland,3
+599,2021,india,62
+600,2021,indonesia,2
+601,2021,iran,4
+602,2021,iraq,1
+603,2021,ireland,3
+604,2021,israel,6
+605,2021,italy,130
+606,2021,japan,96
+607,2021,kazakhstan,1
+608,2021,kuwait,1
+609,2021,kyrgyzstan,1
+610,2021,libya,1
+611,2021,lithuania,3
+612,2021,luxembourg,1
+613,2021,malaysia,10
+614,2021,mexico,9
+615,2021,monaco,1
+616,2021,mongolia,1
+617,2021,netherlands,64
+618,2021,new zealand,94
+619,2021,nigeria,1
+620,2021,norway,71
+621,2021,pakistan,2
+622,2021,paraguay,1
+623,2021,peru,8
+624,2021,poland,46
+625,2021,portugal,27
+626,2021,republic of korea,85
+627,2021,romania,2
+628,2021,russia,65
+629,2021,saudi arabia,6
+630,2021,singapore,3
+631,2021,slovenia,1
+632,2021,south africa,31
+633,2021,spain,108
+634,2021,sri lanka,1
+635,2021,sweden,36
+636,2021,switzerland,36
+637,2021,taiwan,4
+638,2021,thailand,6
+639,2021,turkey,13
+640,2021,ukraine,33
+641,2021,united arab emirates,5
+642,2021,united kingdom,291
+643,2021,united states,502
+644,2021,uruguay,12
+645,2021,vietnam,1
+646,2022,albania,3
+647,2022,argentina,64
+648,2022,armenia,1
+649,2022,australia,168
+650,2022,austria,15
+651,2022,bahrain,1
+652,2022,bangladesh,2
+653,2022,belarus,6
+654,2022,belgium,40
+655,2022,benin,1
+656,2022,bolivia,1
+657,2022,brazil,129
+658,2022,bulgaria,9
+659,2022,burkina,1
+660,2022,cambodia,1
+661,2022,cameroon,1
+662,2022,canada,74
+663,2022,chile,73
+664,2022,china,279
+665,2022,colombia,10
+666,2022,congo,1
+667,2022,costa rica,2
+668,2022,croatia,1
+669,2022,cuba,1
+670,2022,cyprus,2
+671,2022,czechia,22
+672,2022,denmark,34
+673,2022,ecuador,5
+674,2022,egypt,4
+675,2022,el salvador,1
+676,2022,ethiopia,1
+677,2022,finland,20
+678,2022,france,84
+679,2022,gambia,1
+680,2022,georgia,2
+681,2022,germany,169
+682,2022,ghana,2
+683,2022,greece,5
+684,2022,hungary,1
+685,2022,iceland,3
+686,2022,india,47
+687,2022,indonesia,3
+688,2022,iran,4
+689,2022,ireland,8
+690,2022,israel,5
+691,2022,italy,122
+692,2022,ivory coast,1
+693,2022,japan,73
+694,2022,kazakhstan,1
+695,2022,kenya,1
+696,2022,lesotho,1
+697,2022,liberia,1
+698,2022,lithuania,2
+699,2022,luxembourg,1
+700,2022,madagascar,1
+701,2022,malaysia,14
+702,2022,mexico,6
+703,2022,monaco,5
+704,2022,mongolia,1
+705,2022,netherlands,47
+706,2022,new zealand,93
+707,2022,nigeria,1
+708,2022,norway,52
+709,2022,oman,1
+710,2022,pakistan,4
+711,2022,palestine,1
+712,2022,panama,1
+713,2022,peru,5
+714,2022,philippines,1
+715,2022,poland,33
+716,2022,portugal,20
+717,2022,republic of korea,93
+718,2022,romania,1
+719,2022,russia,64
+720,2022,saudi arabia,11
+721,2022,serbia,2
+722,2022,sierra leone,1
+723,2022,singapore,5
+724,2022,slovenia,4
+725,2022,south africa,56
+726,2022,south sudan,1
+727,2022,spain,88
+728,2022,sri lanka,1
+729,2022,sweden,34
+730,2022,switzerland,39
+731,2022,taiwan,7
+732,2022,tanzania,1
+733,2022,thailand,4
+734,2022,turkey,21
+735,2022,uganda,2
+736,2022,ukraine,35
+737,2022,united arab emirates,2
+738,2022,united kingdom,277
+739,2022,united states,422
+740,2022,uruguay,7
+741,2022,venezuela,2
+742,2022,vietnam,1
+743,2023,algeria,4
+744,2023,argentina,66
+745,2023,australia,148
+746,2023,austria,17
+747,2023,bahrain,1
+748,2023,belarus,3
+749,2023,belgium,52
+750,2023,brazil,98
+751,2023,bulgaria,10
+752,2023,canada,63
+753,2023,chile,98
+754,2023,china,274
+755,2023,colombia,5
+756,2023,costa rica,2
+757,2023,croatia,1
+758,2023,czechia,29
+759,2023,denmark,41
+760,2023,ecuador,4
+761,2023,egypt,1
+762,2023,el salvador,2
+763,2023,estonia,1
+764,2023,finland,15
+765,2023,france,102
+766,2023,georgia,2
+767,2023,germany,164
+768,2023,ghana,1
+769,2023,greece,1
+770,2023,iceland,1
+771,2023,india,57
+772,2023,indonesia,2
+773,2023,iran,2
+774,2023,ireland,7
+775,2023,israel,5
+776,2023,italy,110
+777,2023,japan,84
+778,2023,lithuania,1
+779,2023,luxembourg,1
+780,2023,malaysia,10
+781,2023,mexico,11
+782,2023,monaco,2
+783,2023,mongolia,2
+784,2023,namibia,1
+785,2023,nepal,1
+786,2023,netherlands,55
+787,2023,new zealand,84
+788,2023,norway,64
+789,2023,pakistan,2
+790,2023,peru,6
+791,2023,poland,36
+792,2023,portugal,17
+793,2023,republic of korea,72
+794,2023,romania,2
+795,2023,russia,67
+796,2023,saudi arabia,4
+797,2023,singapore,2
+798,2023,slovakia,1
+799,2023,slovenia,1
+800,2023,south africa,40
+801,2023,spain,73
+802,2023,sweden,31
+803,2023,switzerland,56
+804,2023,taiwan,4
+805,2023,thailand,3
+806,2023,tonga,1
+807,2023,tunisia,1
+808,2023,turkey,28
+809,2023,ukraine,26
+810,2023,united arab emirates,8
+811,2023,united kingdom,257
+812,2023,united states,415
+813,2023,uruguay,13
+814,2024,albania,1
+815,2024,algeria,1
+816,2024,argentina,71
+817,2024,armenia,1
+818,2024,australia,155
+819,2024,austria,19
+820,2024,belarus,6
+821,2024,belgium,49
+822,2024,brazil,112
+823,2024,brunei,1
+824,2024,bulgaria,5
+825,2024,canada,58
+826,2024,chile,118
+827,2024,china,287
+828,2024,colombia,5
+829,2024,costa rica,1
+830,2024,cuba,1
+831,2024,cyprus,2
+832,2024,czechia,24
+833,2024,denmark,25
+834,2024,ecuador,7
+835,2024,egypt,2
+836,2024,el salvador,2
+837,2024,ethiopia,1
+838,2024,finland,24
+839,2024,france,114
+840,2024,germany,168
+841,2024,greece,2
+842,2024,hungary,3
+843,2024,iceland,5
+844,2024,india,53
+845,2024,indonesia,1
+846,2024,iran,5
+847,2024,ireland,15
+848,2024,israel,2
+849,2024,italy,141
+850,2024,japan,71
+851,2024,lithuania,2
+852,2024,luxembourg,1
+853,2024,madagascar,1
+854,2024,malaysia,22
+855,2024,mexico,7
+856,2024,monaco,4
+857,2024,morocco,2
+858,2024,netherlands,57
+859,2024,new zealand,87
+860,2024,nigeria,3
+861,2024,norway,62
+862,2024,peru,8
+863,2024,poland,37
+864,2024,portugal,29
+865,2024,republic of korea,91
+866,2024,romania,1
+867,2024,russia,56
+868,2024,saudi arabia,5
+869,2024,singapore,2
+870,2024,slovakia,2
+871,2024,south africa,64
+872,2024,spain,99
+873,2024,sweden,26
+874,2024,switzerland,53
+875,2024,taiwan,4
+876,2024,thailand,2
+877,2024,turkey,20
+878,2024,ukraine,19
+879,2024,united arab emirates,5
+880,2024,united kingdom,301
+881,2024,united states,411
+882,2024,uruguay,19
+883,2024,venezuela,1
+884,2024,vietnam,1

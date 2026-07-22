@@ -1,0 +1,178 @@
+Edge1,Edge2,Weight
+argentina,australia,7
+argentina,brazil,1
+argentina,chile,8
+argentina,italy,2
+argentina,netherlands,3
+argentina,new zealand,1
+argentina,norway,7
+argentina,peru,2
+argentina,south africa,1
+argentina,spain,4
+argentina,sweden,2
+argentina,united kingdom,6
+argentina,united states,5
+argentina,uruguay,1
+australia,china,5
+australia,finland,1
+australia,france,4
+australia,germany,2
+australia,india,1
+australia,italy,1
+australia,japan,3
+australia,netherlands,5
+australia,new zealand,8
+australia,norway,2
+australia,peru,2
+australia,romania,2
+australia,russian federation,3
+australia,spain,1
+australia,sweden,2
+australia,united kingdom,9
+australia,united states,4
+belgium,brazil,1
+belgium,bulgaria,2
+belgium,chile,2
+belgium,finland,4
+belgium,france,6
+belgium,germany,5
+belgium,italy,3
+belgium,netherlands,6
+belgium,norway,1
+belgium,south africa,2
+belgium,spain,3
+belgium,sweden,4
+belgium,united kingdom,1
+brazil,bulgaria,1
+brazil,chile,1
+brazil,china,1
+brazil,ecuador,1
+brazil,finland,1
+brazil,france,1
+brazil,germany,2
+brazil,italy,1
+brazil,korea (rok),1
+brazil,netherlands,1
+brazil,new zealand,1
+brazil,peru,3
+brazil,poland,3
+brazil,russian federation,1
+brazil,sweden,1
+brazil,united states,2
+brazil,uruguay,1
+bulgaria,finland,2
+bulgaria,france,2
+bulgaria,germany,2
+bulgaria,netherlands,2
+bulgaria,spain,1
+bulgaria,sweden,2
+ccamlr,peru,1
+chile,finland,1
+chile,france,2
+chile,germany,3
+chile,italy,3
+chile,netherlands,2
+chile,new zealand,1
+chile,norway,6
+chile,peru,1
+chile,south africa,2
+chile,spain,5
+chile,sweden,1
+chile,united kingdom,6
+chile,united states,7
+chile,uruguay,1
+china,germany,1
+china,india,1
+china,korea (rok),1
+china,romania,2
+china,russian federation,4
+comnap,scar,1
+ecuador,peru,1
+ecuador,poland,1
+ecuador,united states,1
+finland,france,5
+finland,germany,5
+finland,italy,3
+finland,netherlands,5
+finland,norway,1
+finland,south africa,1
+finland,spain,4
+finland,sweden,5
+finland,united kingdom,1
+france,germany,7
+france,italy,4
+france,netherlands,7
+france,new zealand,5
+france,norway,2
+france,russian federation,1
+france,south africa,3
+france,spain,4
+france,sweden,6
+france,united kingdom,2
+france,united states,1
+germany,italy,4
+germany,japan,1
+germany,korea (rok),1
+germany,netherlands,6
+germany,norway,1
+germany,peru,1
+germany,russian federation,1
+germany,south africa,2
+germany,spain,4
+germany,sweden,6
+germany,united kingdom,2
+germany,united states,1
+india,romania,1
+india,russian federation,1
+ipy-ipo,scar,1
+italy,netherlands,5
+italy,new zealand,1
+italy,norway,2
+italy,peru,1
+italy,south africa,3
+italy,spain,3
+italy,sweden,4
+italy,united kingdom,2
+italy,uruguay,1
+japan,peru,1
+japan,sweden,1
+japan,united kingdom,1
+japan,united states,1
+korea (rok),russian federation,1
+netherlands,norway,2
+netherlands,south africa,3
+netherlands,spain,4
+netherlands,sweden,6
+netherlands,united kingdom,2
+new zealand,norway,1
+new zealand,peru,1
+new zealand,russian federation,1
+new zealand,south africa,1
+new zealand,sweden,2
+new zealand,united kingdom,5
+new zealand,united states,7
+new zealand,uruguay,1
+norway,peru,1
+norway,south africa,3
+norway,spain,5
+norway,sweden,2
+norway,united kingdom,10
+norway,united states,5
+peru,poland,2
+peru,sweden,1
+peru,united kingdom,2
+peru,united states,3
+peru,uruguay,1
+poland,united states,2
+romania,russian federation,2
+russian federation,united states,1
+south africa,spain,1
+south africa,sweden,2
+south africa,united kingdom,1
+spain,sweden,4
+spain,united kingdom,5
+spain,united states,4
+sweden,united kingdom,3
+sweden,united states,1
+ukraine,united kingdom,2
+united kingdom,united states,14

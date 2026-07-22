@@ -3,6 +3,7 @@ from antarctic_ladder_metrics.constants import *
 import country_meta_info
 
 import networkx
+import pathlib
 
 from utils import split_parties
 
@@ -57,8 +58,12 @@ class WPCollaborationGraphCentrality():
 
         self.centrality = self._centrality_within()
 
-    def _centrality_within(self, min_year: int | None = None, max_year: int | None = None) -> dict:
-        """Katz centrality of the collaboration graph, optionally restricted to a closed year range."""
+    def _graph_within(self, min_year: int | None = None, max_year: int | None = None) -> tuple[set, dict]:
+        """Parties and co-authorship counts per party pair, optionally restricted to a closed year range.
+
+        Weights are raw counts of shared working papers; the centrality computation
+        normalizes them itself.
+        """
         author_sets = [parties for year, parties in self._author_sets_by_year
                        if (min_year is None or year >= min_year) and (max_year is None or year <= max_year)]
 
@@ -66,15 +71,6 @@ class WPCollaborationGraphCentrality():
         for s in author_sets:
             for c in s:
                 party_set.add(c)
-
-        # An empty window has no graph to run centrality over.
-        if not party_set:
-            return {}
-
-        collaboration_graph = networkx.Graph()
-        # Add nodes in a deterministic order (country name descending) so the matrix
-        # layout used by the centrality computation is reproducible run-to-run.
-        collaboration_graph.add_nodes_from(sorted(party_set, reverse=True))
 
         edge_weights = {}
 
@@ -88,17 +84,31 @@ class WPCollaborationGraphCentrality():
                     else:
                         c1 = author_set[i]
                         c2 = author_set[j]
-                    
+
                     if (c1, c2) in edge_weights:
                         edge_weights[(c1, c2,)] += 1
                     else:
                         edge_weights[(c1, c2,)] = 1
-        
+
+        return party_set, edge_weights
+
+    def _centrality_within(self, min_year: int | None = None, max_year: int | None = None) -> dict:
+        """Katz centrality of the collaboration graph, optionally restricted to a closed year range."""
+        party_set, edge_weights = self._graph_within(min_year, max_year)
+
+        # An empty window has no graph to run centrality over.
+        if not party_set:
+            return {}
+
+        collaboration_graph = networkx.Graph()
+        # Add nodes in a deterministic order (country name descending) so the matrix
+        # layout used by the centrality computation is reproducible run-to-run.
+        collaboration_graph.add_nodes_from(sorted(party_set, reverse=True))
+
         # Normalizing our graph decreases our eigenvalues
         if edge_weights:
             max_edge_weight = max(edge_weights.values())
-            for c in edge_weights:
-                edge_weights[c] /= max_edge_weight
+            edge_weights = {c: w / max_edge_weight for c, w in edge_weights.items()}
 
         # Add edges in a deterministic order (edge country-name pair descending).
         for parties, weight in sorted(edge_weights.items(), reverse=True):
@@ -122,6 +132,23 @@ class WPCollaborationGraphCentrality():
             for country, centrality in sorted(self._centrality_within(min_year, max_year).items()):
                 period_figures.append({"period": label, "country": country, "value": centrality})
         pd.DataFrame(period_figures).to_csv(path)
+
+    def save_collaboration_graphs(self, directory):
+        """Write the underlying collaboration graphs as edge lists, one CSV per window.
+
+        Weights are raw co-authorship counts rather than the max-normalised weights fed
+        to Katz, so they stay comparable across the decade files.
+        """
+        directory = pathlib.Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+
+        windows = [("Full", None, None)] + list(DECADE_BUCKETS)
+        for label, min_year, max_year in windows:
+            _, edge_weights = self._graph_within(min_year, max_year)
+            edges = [{"Edge1": c1, "Edge2": c2, "Weight": weight}
+                     for (c1, c2), weight in sorted(edge_weights.items())]
+            pd.DataFrame(edges, columns=["Edge1", "Edge2", "Weight"]).to_csv(
+                directory / (label + ".csv"), index=False)
 
 
 class WPCollaborationDiversity():

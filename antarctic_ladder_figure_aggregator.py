@@ -17,7 +17,8 @@ import pathlib
 def aggregate_all_figures():
     download_and_extract_all()
     countries = ["Argentina", "Australia", "Belgium", "Brazil", "Bulgaria", "Chile", "China", "Czechia", "Ecuador", "Finland", "France", "Germany", "India", "Italy", "Japan", "Republic of Korea", "Netherlands", "New Zealand", "Norway", "Peru", "Poland", "Russia", "South Africa", "Spain", "Sweden", "United Kingdom", "United States", "Uruguay"]
-    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), WPCollaborationGraphCentrality(), TopicIntroduction(), TopicDiversity(), MeasureWPIntroducers(), InformationPaperAuthorship()]
+    collaboration_centrality = WPCollaborationGraphCentrality()
+    figures = [FacilityFigures(), VesselCrewFigures(), FinalReportMentionFigures(), FinalReportInterventionFigures(), ScarLeadershipFigures(), ScopusFigures(), RatificationSpeed(), WorkingPaperAuthorship(), collaboration_centrality, TopicIntroduction(), TopicDiversity(), MeasureWPIntroducers(), InformationPaperAuthorship()]
     figure_dicts = [figure.country_dict() for figure in figures]
 
     results = pd.DataFrame(columns=["Country"] + [figure.figure_title() for figure in figures])
@@ -43,6 +44,8 @@ def aggregate_all_figures():
             f.save_full_figures(full_figure_dir / (f.figure_title() + ".csv"))
         except:
             pass
+
+    collaboration_centrality.save_collaboration_graphs(pathlib.Path("data") / "collaboration_graphs")
     return results
 
 if __name__ == "__main__":

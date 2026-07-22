@@ -1,0 +1,269 @@
+,year,country,value
+0,1995,argentina,6.0
+1,1995,australia,8.0
+2,1995,belgium,9.0
+3,1995,brazil,2.0
+4,1995,chile,3.0
+5,1995,china,9.0
+6,1995,ecuador,14.0
+7,1995,finland,2.0
+8,1995,france,13.0
+9,1995,germany,10.0
+10,1995,india,9.0
+11,1995,italy,3.0
+12,1995,japan,15.0
+13,1995,korea (rok),1.0
+14,1995,netherlands,8.0
+15,1995,new zealand,7.0
+16,1995,norway,3.0
+17,1995,peru,8.0
+18,1995,poland,9.0
+19,1995,russian federation,6.0
+20,1995,south africa,5.0
+21,1995,spain,8.0
+22,1995,sweden,4.0
+23,1995,united kingdom,7.0
+24,1995,united states,3.0
+25,1995,uruguay,14.6
+26,1996,argentina,5.0
+27,1996,australia,7.0
+28,1996,belgium,8.0
+29,1996,brazil,10.0
+30,1996,chile,2.0
+31,1996,china,8.0
+32,1996,ecuador,9.5
+33,1996,finland,8.0
+34,1996,france,12.0
+35,1996,germany,9.0
+36,1996,india,8.0
+37,1996,italy,2.0
+38,1996,japan,14.0
+39,1996,korea (rok),12.0
+40,1996,netherlands,7.0
+41,1996,new zealand,6.0
+42,1996,norway,1.0
+43,1996,peru,7.0
+44,1996,poland,8.0
+45,1996,russian federation,5.0
+46,1996,south africa,4.0
+47,1996,spain,7.0
+48,1996,sweden,3.0
+49,1996,united kingdom,6.0
+50,1996,united states,2.0
+51,1996,uruguay,11.5
+52,1997,argentina,8.0
+53,1997,australia,6.0
+54,1997,belgium,7.0
+55,1997,brazil,9.0
+56,1997,chile,3.0
+57,1997,china,7.0
+58,1997,ecuador,11.4
+59,1997,finland,7.0
+60,1997,france,10.0
+61,1997,germany,8.0
+62,1997,india,7.0
+63,1997,italy,10.4
+64,1997,japan,12.4
+65,1997,korea (rok),11.8
+66,1997,netherlands,6.0
+67,1997,new zealand,5.0
+68,1997,norway,1.0
+69,1997,peru,6.0
+70,1997,poland,7.0
+71,1997,russian federation,4.0
+72,1997,south africa,3.0
+73,1997,spain,6.0
+74,1997,sweden,2.0
+75,1997,united kingdom,5.0
+76,1997,united states,1.0
+77,1997,uruguay,11.2
+78,1998,argentina,7.0
+79,1998,australia,5.0
+80,1998,belgium,6.0
+81,1998,brazil,8.0
+82,1998,chile,2.0
+83,1998,china,6.0
+84,1998,ecuador,8.5
+85,1998,finland,6.0
+86,1998,france,9.0
+87,1998,germany,7.0
+88,1998,india,6.0
+89,1998,italy,8.5
+90,1998,japan,8.5
+91,1998,korea (rok),11.0
+92,1998,netherlands,5.0
+93,1998,new zealand,4.0
+94,1998,norway,8.5
+95,1998,peru,5.0
+96,1998,poland,6.0
+97,1998,russian federation,7.0
+98,1998,south africa,2.0
+99,1998,spain,5.0
+100,1998,sweden,1.0
+101,1998,united kingdom,4.0
+102,1998,united states,4.0
+103,1998,uruguay,9.5
+104,1999,argentina,6.0
+105,1999,australia,4.0
+106,1999,belgium,5.0
+107,1999,brazil,7.0
+108,1999,bulgaria,10.0
+109,1999,chile,1.0
+110,1999,china,5.0
+111,1999,ecuador,10.0
+112,1999,finland,5.0
+113,1999,france,7.0
+114,1999,germany,6.0
+115,1999,india,6.0
+116,1999,italy,10.0
+117,1999,japan,10.0
+118,1999,korea (rok),10.0
+119,1999,netherlands,4.0
+120,1999,new zealand,3.0
+121,1999,norway,10.0
+122,1999,peru,4.0
+123,1999,poland,5.0
+124,1999,russian federation,6.0
+125,1999,south africa,1.0
+126,1999,spain,4.0
+127,1999,sweden,0.0
+128,1999,united kingdom,3.0
+129,1999,united states,3.0
+130,1999,uruguay,5.0
+131,2001,argentina,4.666666666666667
+132,2001,australia,2.0
+133,2001,belgium,3.0
+134,2001,brazil,5.0
+135,2001,bulgaria,4.666666666666667
+136,2001,chile,6.0
+137,2001,china,3.0
+138,2001,ecuador,6.333333333333333
+139,2001,finland,3.0
+140,2001,france,6.0
+141,2001,germany,4.0
+142,2001,india,4.0
+143,2001,italy,4.666666666666667
+144,2001,japan,11.0
+145,2001,korea (rok),11.0
+146,2001,netherlands,2.0
+147,2001,new zealand,1.0
+148,2001,norway,1.0
+149,2001,peru,2.0
+150,2001,poland,3.0
+151,2001,russian federation,4.0
+152,2001,south africa,4.0
+153,2001,spain,4.666666666666667
+154,2001,sweden,1.0
+155,2001,united kingdom,4.0
+156,2001,united states,1.0
+157,2001,uruguay,7.666666666666667
+158,2003,argentina,1.0
+159,2003,australia,3.0
+160,2003,belgium,1.0
+161,2003,brazil,6.0
+162,2003,bulgaria,1.0
+163,2003,chile,4.0
+164,2003,china,1.0
+165,2003,ecuador,5.0
+166,2003,finland,1.0
+167,2003,france,3.0
+168,2003,germany,2.0
+169,2003,india,2.0
+170,2003,italy,5.0
+171,2003,japan,1.0
+172,2003,korea (rok),4.0
+173,2003,netherlands,2.0
+174,2003,new zealand,0.0
+175,2003,norway,3.0
+176,2003,peru,3.0
+177,2003,poland,6.0
+178,2003,russian federation,2.0
+179,2003,south africa,2.0
+180,2003,spain,4.0
+181,2003,sweden,2.0
+182,2003,united kingdom,4.0
+183,2003,united states,2.0
+184,2003,uruguay,4.0
+185,2004,argentina,10.0
+186,2004,australia,10.0
+187,2004,belgium,4.0
+188,2004,brazil,20.0
+189,2004,bulgaria,20.0
+190,2004,chile,3.0
+191,2004,china,20.0
+192,2004,ecuador,12.0
+193,2004,finland,6.0
+194,2004,france,4.0
+195,2004,germany,20.0
+196,2004,india,20.0
+197,2004,italy,20.0
+198,2004,japan,5.0
+199,2004,korea (rok),20.0
+200,2004,netherlands,1.0
+201,2004,new zealand,1.0
+202,2004,norway,13.0
+203,2004,peru,20.0
+204,2004,poland,5.0
+205,2004,russian federation,13.0
+206,2004,south africa,1.0
+207,2004,spain,18.0
+208,2004,sweden,20.0
+209,2004,united kingdom,3.0
+210,2004,united states,20.0
+211,2004,uruguay,7.0
+212,2005,argentina,19.0
+213,2005,australia,9.0
+214,2005,belgium,19.0
+215,2005,brazil,19.0
+216,2005,bulgaria,19.0
+217,2005,chile,16.0
+218,2005,china,19.0
+219,2005,ecuador,11.0
+220,2005,finland,5.0
+221,2005,france,16.0
+222,2005,germany,12.0
+223,2005,india,19.0
+224,2005,italy,6.0
+225,2005,japan,19.0
+226,2005,korea (rok),19.0
+227,2005,netherlands,9.0
+228,2005,new zealand,8.0
+229,2005,norway,8.0
+230,2005,peru,2.0
+231,2005,poland,4.0
+232,2005,russian federation,8.0
+233,2005,south africa,8.0
+234,2005,spain,3.0
+235,2005,sweden,1.0
+236,2005,ukraine,13.0
+237,2005,united kingdom,8.0
+238,2005,united states,19.0
+239,2005,uruguay,12.0
+240,2009,argentina,10.0
+241,2009,australia,5.0
+242,2009,belgium,9.0
+243,2009,brazil,15.0
+244,2009,bulgaria,15.0
+245,2009,chile,14.0
+246,2009,china,15.0
+247,2009,ecuador,8.0
+248,2009,finland,8.0
+249,2009,france,1.0
+250,2009,germany,15.0
+251,2009,india,15.0
+252,2009,italy,15.0
+253,2009,japan,0.0
+254,2009,korea (rok),15.0
+255,2009,netherlands,5.0
+256,2009,new zealand,8.0
+257,2009,norway,16.0
+258,2009,peru,15.0
+259,2009,poland,15.0
+260,2009,russian federation,8.0
+261,2009,south africa,15.0
+262,2009,spain,13.0
+263,2009,sweden,15.0
+264,2009,ukraine,9.0
+265,2009,united kingdom,4.0
+266,2009,united states,15.0
+267,2009,uruguay,2.0
