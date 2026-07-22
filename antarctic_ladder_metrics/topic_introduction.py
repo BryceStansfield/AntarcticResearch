@@ -4,6 +4,7 @@ from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
 from embeddings.bertopic_backend import OpenRouterBackend, topic_vectorizer
+from antarctic_ladder_metrics.constants import DECADE_BUCKETS, START_YEAR, END_YEAR
 import country_meta_info
 
 import pandas as pd
@@ -96,28 +97,69 @@ class TopicIntroduction():
 class TopicDiversity():
     def __init__(self):
         wp_bertopic = get_wp_bertopic()
-        
-        self.countries_to_topics = {}
+
+        # (country, global_topic_id, year) triples. The topic model is fit exactly
+        # once, over the whole corpus, and these are its assignments -- windowing
+        # below only ever filters these rows, so topic ids mean the same thing in
+        # every period and are comparable across them.
+        #
+        # Diversity is a distinct count, not a sum, so a window's value cannot be
+        # derived by partitioning the overall one: a country working one topic in
+        # two decades contributes 1 overall but 1 to each decade.
+        self._country_topic_years = []
 
         for i, t in enumerate(wp_bertopic.topics):
             if t == -1:
                 continue # Outlier topic
 
-            countries = [country_meta_info.normalize_country_name(p) for p in split_parties(wp_bertopic.documents[i]["parties"])]
-            
+            document = wp_bertopic.documents[i]
+
+            # The BERTopic corpus is filtered by language only and spans 1961-2025,
+            # so clip to the ladder window here. Note this clips only *this metric's
+            # counting* -- the topic model itself still sees every document, so the
+            # topic ids stay identical to the ones TopicIntroduction reports against.
+            if document["year"] < START_YEAR or document["year"] > END_YEAR:
+                continue
+
+            countries = [country_meta_info.normalize_country_name(p) for p in split_parties(document["parties"])]
+
             for country in countries:
-                if country not in self.countries_to_topics:
-                    self.countries_to_topics[country] = set()
-                self.countries_to_topics[country].add(t)
-        
-        for c in self.countries_to_topics:
-            self.countries_to_topics[c] = len(self.countries_to_topics[c])
+                self._country_topic_years.append((country, t, document["year"]))
+
+        self.countries_to_topics = self._diversity_within()
+
+    def _diversity_within(self, min_year: int | None = None, max_year: int | None = None) -> dict:
+        """Distinct topics per country, optionally restricted to a closed year range."""
+        countries_to_topics = {}
+        for country, topic, year in self._country_topic_years:
+            if min_year is not None and year < min_year:
+                continue
+            if max_year is not None and year > max_year:
+                continue
+            if country not in countries_to_topics:
+                countries_to_topics[country] = set()
+            countries_to_topics[country].add(topic)
+
+        return {c: len(topics) for c, topics in countries_to_topics.items()}
 
     def country_dict(self) -> dict:
         return self.countries_to_topics
 
     def figure_title(self) -> str:
         return "Working Paper Topic Diversity"
+
+    def save_full_figures(self, path: str):
+        # Per DECADE_BUCKETS. Only the distinct-topic *count* is re-evaluated per
+        # window -- the topic model and its assignments are global and untouched.
+        # The buckets tile START_YEAR..END_YEAR exactly, so every document counted
+        # in country_dict() falls in exactly one period; the decade values still do
+        # NOT add up to it, since a topic a country worked in several decades counts
+        # once overall but once per decade.
+        period_figures = []
+        for label, min_year, max_year in DECADE_BUCKETS:
+            for country, diversity in sorted(self._diversity_within(min_year, max_year).items()):
+                period_figures.append({"period": label, "country": country, "value": diversity})
+        pd.DataFrame(period_figures).to_csv(path)
 
 if __name__ == "__main__":
     print(TopicDiversity().country_dict())

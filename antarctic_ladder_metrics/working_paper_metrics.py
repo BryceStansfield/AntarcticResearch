@@ -49,17 +49,28 @@ class WPCollaborationGraphCentrality():
         wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= START_YEAR) & (wp_authorship_table["meeting_year"] <= END_YEAR)]
         wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
         
-        author_sets = []
+        # Author sets are kept with their meeting year so the graph can be rebuilt
+        # over any window. Centrality is not additive, so a window's value has to be
+        # recomputed from that window's graph rather than derived from the overall one.
+        self._author_sets_by_year = [(row.meeting_year, split_parties(row.parties))
+                                     for row in wp_authorship_table.itertuples()]
 
-        for row in wp_authorship_table.itertuples():
-            parties = row.parties
-            author_sets.append(split_parties(parties))
-        
+        self.centrality = self._centrality_within()
+
+    def _centrality_within(self, min_year: int | None = None, max_year: int | None = None) -> dict:
+        """Katz centrality of the collaboration graph, optionally restricted to a closed year range."""
+        author_sets = [parties for year, parties in self._author_sets_by_year
+                       if (min_year is None or year >= min_year) and (max_year is None or year <= max_year)]
+
         party_set = set()
         for s in author_sets:
             for c in s:
                 party_set.add(c)
-        
+
+        # An empty window has no graph to run centrality over.
+        if not party_set:
+            return {}
+
         collaboration_graph = networkx.Graph()
         # Add nodes in a deterministic order (country name descending) so the matrix
         # layout used by the centrality computation is reproducible run-to-run.
@@ -83,23 +94,36 @@ class WPCollaborationGraphCentrality():
                     else:
                         edge_weights[(c1, c2,)] = 1
         
-        # Normalizing our graph decreases our eigenvalues and allows us to use higher attenuation factors.
-        max_edge_weight = max(edge_weights.values())
-        for c in edge_weights:
-            edge_weights[c] /= max_edge_weight
-        
+        # Normalizing our graph decreases our eigenvalues
+        if edge_weights:
+            max_edge_weight = max(edge_weights.values())
+            for c in edge_weights:
+                edge_weights[c] /= max_edge_weight
+
         # Add edges in a deterministic order (edge country-name pair descending).
         for parties, weight in sorted(edge_weights.items(), reverse=True):
             collaboration_graph.add_edge(parties[0], parties[1], weight=weight)
-        
-        self.centrality = networkx.centrality.katz_centrality_numpy(collaboration_graph, alpha=0.1, weight="weight")
+
+        return networkx.centrality.katz_centrality_numpy(collaboration_graph, alpha=0.1, weight="weight")
 
     def country_dict(self) -> dict:
         return dict(self.centrality)
 
     def figure_title(self) -> str:
         return "WP Collaboration Graph Centrality"
-    
+
+    def save_full_figures(self, path: str):
+        # Recomputed per decade rather than summed: see DECADE_BUCKETS. Centrality is
+        # normalised within its own graph, so values are comparable across countries
+        # inside a decade but NOT across decades, and they do not relate to
+        # country_dict() by any sum.
+        period_figures = []
+        for label, min_year, max_year in DECADE_BUCKETS:
+            for country, centrality in sorted(self._centrality_within(min_year, max_year).items()):
+                period_figures.append({"period": label, "country": country, "value": centrality})
+        pd.DataFrame(period_figures).to_csv(path)
+
+
 class WPCollaborationDiversity():
     def __init__(self) -> None:
         wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
