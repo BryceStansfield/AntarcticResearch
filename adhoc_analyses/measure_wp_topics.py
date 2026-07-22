@@ -116,6 +116,9 @@ def load_working_papers() -> list[dict]:
                 "embedding": mean_embedding,
                 "label": pathlib.Path(path).stem,
                 "n_segments": len(segments),
+                # Unused here; measure_wp_latency.py needs it to skip papers
+                # authored only by non-party bodies when matching.
+                "parties": representation.get("parties", []),
             }
         )
     return docs
