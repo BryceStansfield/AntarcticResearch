@@ -1,3 +1,5 @@
+import pandas as pd
+
 import embeddings.document_embeddings
 import utils
 from antarctic_ladder_metrics.constants import *
@@ -14,7 +16,9 @@ class MeasureWPIntroducers():
 
         working_paper_getter = embeddings.document_embeddings.EmbeddingLookerUpper("WorkingPaper")
 
-        self.country_sums = {}
+        # Keyed (measure_adoption_year, country). Credit lands in the year the measure
+        # was adopted rather than the year its introducing WP was tabled.
+        self.country_sums_by_year = {}
         for measure in measures:
             # Pull a wider candidate pool, then keep the nearest `neighbours_to_weigh`
             # WPs that (a) have a real (non-observer) party author and (b) predate the
@@ -39,13 +43,24 @@ class MeasureWPIntroducers():
             for distance, parties in kept:
                 doc_weight = (1/distance) / weight_normaliser
                 for p in parties:
-                    self.country_sums[p] = self.country_sums.get(p, 0) + doc_weight
+                    key = (measure["year"], p)
+                    self.country_sums_by_year[key] = self.country_sums_by_year.get(key, 0) + doc_weight
+
+        self.country_sums = {}
+        for (_, country), weight in self.country_sums_by_year.items():
+            self.country_sums[country] = self.country_sums.get(country, 0) + weight
 
     def country_dict(self) -> dict:
         return dict(self.country_sums)
 
     def figure_title(self) -> str:
         return "Measure WP Introductions"
+
+    def save_full_figures(self, path: str):
+        yearly_figures = sorted(
+            ({"year": int(k[0]), "country": k[1], "value": v} for k, v in self.country_sums_by_year.items()),
+            key=lambda r: (r["year"], r["country"]))
+        pd.DataFrame(yearly_figures).to_csv(path)
 
 if __name__ == "__main__":
     print(MeasureWPIntroducers().country_dict())
