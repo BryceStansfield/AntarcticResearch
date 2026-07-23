@@ -36,6 +36,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap
 
 from adhoc_analyses.measure_wp_topics import load_measures, load_working_papers
 from latency_analyses.measure_wp_latency import OUTPUT_DIR, SIMILARITY_THRESHOLD, _has_real_party
@@ -44,6 +45,12 @@ THRESHOLDS = np.round(np.arange(0.70, 0.951, 0.01), 2)
 # The by-decade panel: one clearly-degenerate threshold, the agreed one, and one
 # stricter, so the chosen value can be read against its neighbours.
 HIGHLIGHT = [0.75, SIMILARITY_THRESHOLD, 0.90]
+
+# Full-figure version of panel D: every threshold from 0.75 to 0.90, so the
+# degeneration-with-calendar can be read as a continuous family rather than three
+# sampled lines. Threshold is an ordered magnitude, so these lines are coloured on
+# a single-hue sequential ramp (light = loose, dark = strict), not categorically.
+DECADE_FAMILY = np.round(np.arange(0.75, 0.901, 0.01), 2)
 
 SERIES = ["#2a78d6", "#008300", "#e87ba4"]
 CEILING = "#52514e"
@@ -155,6 +162,106 @@ def by_decade(sims, measure_years, wp_years) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def decade_lag_family(sims, measure_years, wp_years, thresholds) -> pd.DataFrame:
+    """Median lag per instrument decade, for each threshold in ``thresholds``.
+
+    The many-line generalisation of ``by_decade``: one ``lag_<t>`` column per
+    threshold plus the ``available_history`` ceiling, so the full family can be
+    drawn on one axes.
+    """
+    precedes = wp_years[None, :] <= measure_years[:, None]
+    available = np.where(
+        precedes.any(axis=1),
+        measure_years - np.where(precedes, wp_years[None, :], np.inf).min(axis=1),
+        np.nan,
+    )
+    decade = (measure_years // 10 * 10).astype(int)
+
+    rows = []
+    for d in sorted(set(decade)):
+        in_decade = decade == d
+        row = {"decade": d, "n": int(in_decade.sum()),
+               "available_history": float(np.nanmedian(available[in_decade]))}
+        for t in thresholds:
+            ok = precedes & (sims >= t)
+            has = ok.any(axis=1) & in_decade
+            if has.any():
+                lag = measure_years - np.where(ok, wp_years[None, :], np.inf).min(axis=1)
+                row[f"lag_{t}"] = float(np.median(lag[has]))
+            else:
+                row[f"lag_{t}"] = np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def plot_decade_family(decades, thresholds, path: pathlib.Path):
+    """Panel D at full size: one line per threshold, blue below 0.85 and red at/above.
+
+    Same question and same labels as ``plot``'s panel D -- does median lag grow
+    with the instrument's decade? -- but every threshold from 0.75 to 0.90 is
+    shown, so the reader sees the loose lines peel up toward the ceiling while the
+    strict ones stay flat, without three sampled thresholds standing in for the
+    trend. The scale splits at the chosen 0.85: rejected (looser) thresholds keep
+    the blue ramp, accepted (0.85+) ones go red, so the two regions read apart. A
+    colourbar carries the threshold value because a 16-line legend would not.
+    """
+    fig, ax = plt.subplots(figsize=(13, 8))
+    ax.grid(True, color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(GRID)
+    ax.tick_params(colors=INK_MUTED, labelsize=9)
+
+    # Two-part scale split at the chosen SIMILARITY_THRESHOLD (0.85). Below it, the
+    # original blue ramp is kept unchanged -- blue is normalised over the whole
+    # 0.75-0.90 span, so a given loose threshold keeps exactly the colour it had.
+    # At 0.85 and above the scale switches to red (normalised over 0.85-0.90), so
+    # the accepted region reads as one distinct block rather than the dark end of a
+    # single ramp. Steps kept off the white surface so the lightest still reads.
+    blue = LinearSegmentedColormap.from_list("thr_blue", ["#86b6ef", "#256abf", "#0d366b"])
+    red = LinearSegmentedColormap.from_list("thr_red", ["#fca9a4", "#cb181d", "#67000d"])
+    blue_norm = plt.Normalize(float(thresholds.min()), float(thresholds.max()))
+    red_norm = plt.Normalize(SIMILARITY_THRESHOLD, float(thresholds.max()))
+
+    def color_for(t: float):
+        if t >= SIMILARITY_THRESHOLD - 1e-9:
+            return red(red_norm(t))
+        return blue(blue_norm(t))
+
+    ax.plot(decades["decade"], decades["available_history"], color=CEILING,
+            linewidth=1.8, linestyle=(0, (4, 3)), zorder=3,
+            label="available history (degeneracy ceiling)")
+    for t in thresholds:
+        ax.plot(decades["decade"], decades[f"lag_{t}"], color=color_for(t),
+                linewidth=2, marker="o", markersize=4, zorder=2)
+
+    ax.set_title("Median lag by instrument decade, across similarity thresholds",
+                 fontsize=13, color=INK, loc="left", pad=12)
+    ax.set_xlabel("instrument decade", fontsize=10, color=INK_MUTED)
+    ax.set_ylabel("median lag (years)", fontsize=10, color=INK_MUTED)
+    ax.set_ylim(bottom=0)
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK_MUTED, loc="upper left")
+
+    # Discrete colourbar built from the exact per-threshold colours, so the
+    # blue→red switch at 0.85 shows on the scale itself; one cell per threshold.
+    step = 0.01
+    edges = np.append(thresholds - step / 2, thresholds[-1] + step / 2)
+    listed = ListedColormap([color_for(t) for t in thresholds])
+    sm = plt.cm.ScalarMappable(cmap=listed, norm=BoundaryNorm(edges, listed.N))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, pad=0.015)
+    cbar.set_label("similarity threshold", fontsize=9, color=INK_MUTED)
+    cbar.set_ticks(thresholds[::2])
+    cbar.ax.tick_params(colors=INK_MUTED, labelsize=8)
+    cbar.outline.set_edgecolor(GRID)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def plot(sims, table, decades, path: pathlib.Path):
     fig, axes = plt.subplots(2, 2, figsize=(14, 9.5))
     for ax in axes.flat:
@@ -260,6 +367,10 @@ def main():
     print(decades[cols].to_string(index=False))
 
     plot(sims, table, decades, OUTPUT_DIR / "threshold_exploration.png")
+
+    family = decade_lag_family(sims, measure_years, wp_years, DECADE_FAMILY)
+    plot_decade_family(family, DECADE_FAMILY, OUTPUT_DIR / "threshold_decade_family.png")
+
     print(f"\nWritten to {OUTPUT_DIR}/")
 
 
