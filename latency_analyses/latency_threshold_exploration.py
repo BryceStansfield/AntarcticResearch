@@ -23,7 +23,7 @@ Approval) instruments go from 0% of instruments through the 1990s to 29% (2000s)
 51% (2010s) and 58% (2020s), and those are ASPA/ASMA management-plan *revisions*
 whose originating designation genuinely does sit decades earlier.
 
-Outputs (to ``adhoc_analyses/output/``):
+Outputs (to ``data/latencies/``):
   * ``threshold_sweep.csv``            — the sweep table
   * ``threshold_exploration.png``      — four diagnostic panels
 """
@@ -37,8 +37,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from adhoc_analyses.measure_wp_topics import OUTPUT_DIR, load_measures, load_working_papers
-from adhoc_analyses.measure_wp_latency import SIMILARITY_THRESHOLD, _has_real_party
+from adhoc_analyses.measure_wp_topics import load_measures, load_working_papers
+from latency_analyses.measure_wp_latency import OUTPUT_DIR, SIMILARITY_THRESHOLD, _has_real_party
 
 THRESHOLDS = np.round(np.arange(0.70, 0.951, 0.01), 2)
 # The by-decade panel: one clearly-degenerate threshold, the agreed one, and one

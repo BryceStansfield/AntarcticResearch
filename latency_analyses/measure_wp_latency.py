@@ -51,7 +51,7 @@ Three things qualify every number:
   dimmed, so a latency computed from a minority of a topic cannot be misread as
   covering all of it.
 
-Outputs (to ``adhoc_analyses/output/``):
+Outputs (to ``data/latencies/``):
   * ``latency_matches.csv``     — one row per instrument: its match and latency
   * ``latency_by_topic.csv``    — per-topic n / mean / quartiles / chance / ceiling
   * ``latency_by_topic.png``    — box-and-whisker over all reported topics
@@ -68,12 +68,14 @@ import pandas as pd
 
 import utils
 from adhoc_analyses.measure_wp_topics import (
-    OUTPUT_DIR,
     fit_combined_topic_model,
     load_measures,
     load_working_papers,
 )
 from antarctic_ladder_metrics.measure_wp_introduction import NON_PARTY_AUTHORS
+
+# Shared with latency_threshold_exploration.py, which imports it from here.
+OUTPUT_DIR = pathlib.Path("data/latencies")
 
 # Instrument types the latency is computed for; None means every type. Set it to
 # a tuple such as ("Measure",) to narrow. Coverage differs sharply by type --

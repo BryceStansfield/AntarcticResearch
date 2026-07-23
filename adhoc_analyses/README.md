@@ -17,3 +17,7 @@ Outputs land in `adhoc_analyses/output/`.
   ("measures", all four instrument types) and Working Papers, then the
   instrument/WP composition of each topic. Groundwork for measuring how long a
   topic takes to travel between the two document classes.
+
+The latency analyses that build on this (matching instruments to preceding
+working papers, and the similarity-threshold exploration) now live in
+`latency_analyses/`; they import the shared loaders from `measure_wp_topics.py`.
