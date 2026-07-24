@@ -32,3 +32,14 @@ Outputs land in `data/latencies/`.
 - `lag_distributions.py` — box-and-whisker plots of the matched lags, two views:
   `lag_box_by_decade.png` (one panel per decade, a box per instrument type) and
   `lag_box_by_type.png` (one panel per instrument type, a box per decade).
+- `rerank_latency_comparison.py` — a second opinion on the cosine ordering. Takes
+  every dated instrument (set `N_INSTRUMENTS` to an int to sample instead), takes
+  each one's 10 nearest working papers in embedding space (no precedence filter,
+  so lags may be negative), and reorders that same set with a
+  `cohere/rerank-4-pro` cross-encoder. Emits
+  `rerank_latency_by_rank.png`, the lag distribution at each rank under cosine
+  vs reranked order, and `rerank_latency_comparison.csv`.
+- `wp_reranker.py` — the cached OpenRouter reranker used above. Scores are cached
+  per (model, query, document) in `data/latencies/rerank_cache.sqlite3`, so only
+  unseen instrument–paper pairs touch the network. Not an analysis; imported, not
+  run.
