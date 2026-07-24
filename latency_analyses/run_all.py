@@ -15,7 +15,6 @@ from latency_analyses import (
     latency_threshold_exploration,
     lag_distributions,
     measure_wp_latency,
-    rerank_latency_comparison,
 )
 
 # (name, entry point) in run order.
@@ -23,7 +22,6 @@ ANALYSES = [
     ("Working paper → instrument latency, by topic", measure_wp_latency.main),
     ("Similarity-threshold exploration", latency_threshold_exploration.main),
     ("Lag distributions by decade and instrument type", lag_distributions.main),
-    ("Cosine vs cross-encoder rerank, lag by rank", rerank_latency_comparison.main),
 ]
 
 
