@@ -12,6 +12,7 @@ otherwise the order is independent.
 """
 
 from latency_analyses import (
+    bipartite_matching_graphs,
     latency_threshold_exploration,
     lag_distributions,
     measure_wp_latency,
@@ -22,6 +23,7 @@ ANALYSES = [
     ("Working paper → instrument latency, by topic", measure_wp_latency.main),
     ("Similarity-threshold exploration", latency_threshold_exploration.main),
     ("Lag distributions by decade and instrument type", lag_distributions.main),
+    ("Bipartite matching graphs, per policy", bipartite_matching_graphs.main),
 ]
 
 

@@ -32,3 +32,10 @@ Outputs land in `data/latencies/`.
 - `lag_distributions.py` — box-and-whisker plots of the matched lags, two views:
   `lag_box_by_decade.png` (one panel per decade, a box per instrument type) and
   `lag_box_by_type.png` (one panel per instrument type, a box per decade).
+- `bipartite_matching_graphs.py` — draws each matching policy as a bipartite
+  graph (working papers left, instruments right), one image per policy: cosine ≥
+  t for t in {0.75…0.90} × {backward-looking, unrestricted}, plus closest-document.
+  Both columns are stratified by year into dotted-separated bands sharing one
+  axis, oldest at the top; edges slope down (blue) when the paper predates its
+  instrument and up (orange) when it postdates it. No edges pruned, all nodes
+  drawn. Outputs to the `bipartite_graphs/` subdirectory plus `policy_summary.csv`.
