@@ -26,3 +26,7 @@ data/authorship_models.pickle
 data/working_paper_country_mentions.txt
 data/finetuning/
 data/antarctic-db.zip
+
+# Bipartite matching graphs are large multi-MB renders; regenerate via
+# latency_analyses.bipartite_matching_graphs. The summary CSV stays trackable.
+data/latencies/bipartite_graphs/*.png
