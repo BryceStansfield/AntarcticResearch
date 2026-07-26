@@ -26,6 +26,14 @@ Outputs land in `adhoc_analyses/output/`.
   manifold (every measure has a WP neighbour ~0.10 away, vs a ~0.43 typical WP-WP
   gap), so it is a decision-boundary problem, not OOD coverage.
 
+- `direct_country_signal_probe.py` — injection probe for the *direct* (non-topic)
+  country-authorship signal: prepend "THE FOLLOWING DOCUMENT IS AUTHORED BY
+  {country}" to naive-censored WPs and measure how the embedding shifts. Finding:
+  the direct signal is linearly encoded along stable, country-distinct directions
+  (per-country consistency 0.5-0.86; UK/US partly share an axis). Saves the mean
+  per-country direction vectors for building a projective embedding-space censor.
+  **Not cache-only** — makes live embedding calls (needs `OPENROUTER_API_KEY`).
+
 The latency analyses that build on this (matching instruments to preceding
 working papers, and the similarity-threshold exploration) now live in
 `latency_analyses/`; they import the shared loaders from `measure_wp_topics.py`.
