@@ -26,15 +26,19 @@ the FIRST run makes live embedding calls (needs OPENROUTER_API_KEY). They are pe
 ``document_embeddings.sqlite3`` (keyed by sha256 of the injected text, type ``DirectCountrySignalProbeV1``),
 so reruns with the same documents/prefix are cache reads. It is deterministic given the sample seed.
 
-Usage:
-    python -m adhoc_analyses.direct_country_signal_probe                 # 10-doc sample
-    python -m adhoc_analyses.direct_country_signal_probe --all-wps -w 100 # every WP, 100 workers
+This lives with the authorship classifier because its ``direct_country_directions_allwps.npz`` output is
+consumed by ``country_signal_projection.CountrySignalProjector`` to orthogonalise embeddings against the
+direct signal (``country_authorship_classifier --orthogonalize-country``).
 
-Outputs (to ``adhoc_analyses/output/``; ``_allwps`` suffix in --all-wps mode so the sample is not clobbered):
+Usage:
+    python -m working_paper_authorship.direct_country_signal_probe                 # 10-doc sample
+    python -m working_paper_authorship.direct_country_signal_probe --all-wps -w 80 # every WP, 80 workers
+
+Outputs (to ``data/country_signal/``; ``_allwps`` suffix in --all-wps mode so the sample is not clobbered):
   * ``direct_country_signal_report[...].txt``   — the three-question summary above
   * ``direct_country_signal_shifts[...].csv``   — per (document, country) cosine shift magnitude
   * ``direct_country_directions[...].npz``      — mean unit direction per country (+ consistency), for
-                                                  downstream work (e.g. a projective embedding censor)
+                                                  downstream work (the projective embedding censor)
 """
 import argparse
 import hashlib
@@ -49,7 +53,7 @@ from embeddings.working_paper_censorship import censor_text, get_working_paper_p
 from embeddings.document_embeddings import get_or_generate_embedding
 from working_paper_authorship import country_authorship_classifier as cc
 
-OUTPUT_DIR = pathlib.Path("adhoc_analyses/output")
+OUTPUT_DIR = pathlib.Path("data/country_signal")
 COUNTRIES = cc.COUNTRIES
 N_DOCS = 10
 SAMPLE_SEED = 0

@@ -22,6 +22,7 @@ Outputs (to ``adhoc_analyses/output/``):
   * ``combined_topic_words.txt``       — top words per topic, for eyeballing
 """
 
+import argparse
 import collections
 import pathlib
 
@@ -32,9 +33,12 @@ from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
 from embeddings.bertopic_backend import mean_pool, topic_vectorizer
+from working_paper_authorship.country_signal_projection import CountrySignalProjector
 
 OUTPUT_DIR = pathlib.Path("adhoc_analyses/output")
 MEASURE_CORPUS = pathlib.Path("data/MeasureCorpusEnriched.csv")
+# Direct country-signal directions recovered by direct_country_signal_probe --all-wps.
+COUNTRY_DIRECTIONS_PATH = pathlib.Path("data/country_signal/direct_country_directions_allwps.npz")
 
 # Matches topic_introduction.py so the two models stay comparable.
 UMAP_RANDOM_STATE = 42
@@ -211,7 +215,32 @@ def _min_year(group: pd.DataFrame, doc_class: str):
     return _as_year(years.min()) if len(years) else None
 
 
+def orthogonalize_embeddings(docs: list[dict]) -> int:
+    """Project the direct country-signal subspace out of every document's embedding, in place.
+
+    Same operator the authorship classifier's --orthogonalize-country uses. Projection is linear so it
+    commutes with the WP segment mean-pooling already done in load_working_papers. Returns the rank
+    removed. NOTE: UMAP+HDBSCAN is highly sensitive to dropping a whole subspace, so the resulting
+    clusters are not directly comparable to the baseline — this only shows what the topics look like."""
+    projector = CountrySignalProjector.from_npz(COUNTRY_DIRECTIONS_PATH)
+    stacked = np.vstack([d["embedding"] for d in docs])
+    projected = projector.transform(stacked)
+    for d, e in zip(docs, projected):
+        d["embedding"] = e
+    return projector.rank
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--orthogonalize-country", action="store_true",
+        help="Project the direct country-signal subspace (from direct_country_signal_probe) out of the "
+             "embeddings before clustering, to see what the topics look like without the direct signal. "
+             "Writes *_orthogonal output files so the baseline topics are not overwritten. Caveat: "
+             "UMAP+HDBSCAN is sensitive to dropping dimensions, so clusters shift for that reason alone.",
+    )
+    args = parser.parse_args()
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading cached embeddings...")
@@ -220,13 +249,19 @@ def main():
     docs = measures + working_papers
     print(f"  {len(measures)} instruments, {len(working_papers)} English working papers")
 
+    suffix = ""
+    if args.orthogonalize_country:
+        rank = orthogonalize_embeddings(docs)
+        suffix = "_orthogonal"
+        print(f"  projected out the rank-{rank} direct country-signal subspace before clustering")
+
     topic_model, topics = fit_combined_topic_model(docs)
     breakdown, assignments = build_breakdown(topic_model, topics, docs)
 
-    breakdown.to_csv(OUTPUT_DIR / "combined_topic_breakdown.csv", index=False)
-    assignments.to_csv(OUTPUT_DIR / "combined_topic_assignments.csv", index=False)
+    breakdown.to_csv(OUTPUT_DIR / f"combined_topic_breakdown{suffix}.csv", index=False)
+    assignments.to_csv(OUTPUT_DIR / f"combined_topic_assignments{suffix}.csv", index=False)
 
-    with open(OUTPUT_DIR / "combined_topic_words.txt", "w") as f:
+    with open(OUTPUT_DIR / f"combined_topic_words{suffix}.txt", "w") as f:
         for topic in sorted(t for t in set(topics)):
             words = topic_model.get_topic(topic)
             if isinstance(words, list):

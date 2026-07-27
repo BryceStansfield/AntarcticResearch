@@ -42,6 +42,7 @@ from embeddings.working_paper_censorship import get_working_paper_paths, censor_
 from embeddings.working_paper_semantic_filter import get_or_classify
 from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding, has_embedding
 from embeddings.embed_all_documents import embed_document_set
+from working_paper_authorship.country_signal_projection import CountrySignalProjector
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -75,6 +76,12 @@ DATASETS = [
 DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
 OUTPUT_DIR = pathlib.Path("data/author_classification_models")
 PREDICTIONS_DIR = pathlib.Path("data/test_set_predictions")
+# --orthogonalize-country: train on embeddings with the direct country-signal subspace projected out.
+# Separate output dirs so the orthogonal experiment never overwrites the full-space baseline models.
+COUNTRY_DIRECTIONS_PATH = pathlib.Path("data/country_signal/direct_country_directions_allwps.npz")
+ORTHOGONAL_OUTPUT_DIR = pathlib.Path("data/author_classification_models_orthogonal")
+ORTHOGONAL_PREDICTIONS_DIR = pathlib.Path("data/test_set_predictions_orthogonal")
+_PROJECTOR = None  # set by run_benchmark when orthogonalizing; assemble_xy applies it to every X
 N_FEATURES = 4096
 # Cap on PCA components searched. Beyond this a full-SVD PCA on the large per-sentence dataset
 # (~16k rows) blows up memory under parallel CV, and >512 components rarely helps; capping here
@@ -317,7 +324,11 @@ def assemble_xy(hash_labels: list[tuple]) -> tuple[np.ndarray, np.ndarray, list[
             f"{missing}/{len(hash_labels)} fragments have no cached embedding. Re-run the "
             f"embedding step (run_benchmark embeds automatically; or call embed_missing_embeddings)."
         )
-    return np.array(X_rows, dtype=np.float32), np.array(Y_rows, dtype=np.int32), stems
+    X = np.array(X_rows, dtype=np.float32)
+    if _PROJECTOR is not None:
+        # Project every embedding onto the complement of the direct country-signal subspace.
+        X = _PROJECTOR.transform(X)
+    return X, np.array(Y_rows, dtype=np.int32), stems
 
 
 # -------------------------------------------------------------------- orchestration
@@ -462,7 +473,23 @@ def write_final_test_report(results: list[dict], baseline_avg: float, baseline_p
     print(f"\nWrote final test report to {OUTPUT_DIR}/final_test_report.txt")
 
 
-def run_benchmark(final_test_eval: bool = False) -> list[dict]:
+def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = False) -> list[dict]:
+    global _PROJECTOR, OUTPUT_DIR, PREDICTIONS_DIR
+    if orthogonalize_country:
+        _PROJECTOR = CountrySignalProjector.from_npz(COUNTRY_DIRECTIONS_PATH)
+        print(f"Orthogonalizing embeddings against the direct country signal: projecting out a "
+              f"rank-{_PROJECTOR.rank} subspace ({COUNTRY_DIRECTIONS_PATH}).")
+        baseline_dir = OUTPUT_DIR
+        OUTPUT_DIR = ORTHOGONAL_OUTPUT_DIR
+        PREDICTIONS_DIR = ORTHOGONAL_PREDICTIONS_DIR
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        # Reuse the baseline (full-space) hyperparameters instead of re-searching, so the only thing that
+        # changes between baseline and this run is the feature space — a clean A/B. Copy them across once.
+        for slug, _m, _g in DATASETS:
+            src = baseline_dir / f"best_hyperparameters__{slug}.json"
+            dst = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
+            if src.exists() and not dst.exists():
+                dst.write_text(src.read_text())
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading working papers + authors...")
@@ -584,8 +611,15 @@ def main():
              "train+val and score it once on the held-out test set, writing final_test_report.txt. "
              "Off by default: every run of this touches the test set.",
     )
+    parser.add_argument(
+        "--orthogonalize-country", action="store_true",
+        help="Train on embeddings with the direct country-signal subspace (from the injection probe) "
+             "projected out, to test whether removing the direct signal generalizes better. Writes to "
+             "separate *_orthogonal dirs and reuses the baseline hyperparameters (feature space is the "
+             "only thing that changes).",
+    )
     args = parser.parse_args()
-    run_benchmark(final_test_eval=args.final_test_eval)
+    run_benchmark(final_test_eval=args.final_test_eval, orthogonalize_country=args.orthogonalize_country)
 
 
 if __name__ == "__main__":

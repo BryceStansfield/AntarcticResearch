@@ -20,6 +20,7 @@ Outputs, per (model, censored-dataset) pair:
 The pretrained model pickles must already exist under data/author_classification_models/ (run
 country_authorship_classifier first). This script never trains.
 """
+import argparse
 import pathlib
 import pickle
 
@@ -32,6 +33,7 @@ from embeddings.embed_all_documents import embed_document_set
 
 MEASURES_CSV = pathlib.Path("data/Not-Effective measures.csv")
 OUTPUT_DIR = pathlib.Path("data/not_effective_measure_predictions")
+ORTHOGONAL_OUTPUT_DIR = pathlib.Path("data/not_effective_measure_predictions_orthogonal")
 
 # The censored-trained datasets we score the (uncensored) measures with. Input text is never
 # censored — only the *models* were trained on censored working papers.
@@ -150,10 +152,13 @@ def random_guess_baseline(records: list[dict]) -> tuple[float, list[float]]:
     return float(np.mean(per_class)), per_class
 
 
-def write_report(results: list[dict], n_measures: int, baseline_avg: float, baseline_per_class: list[float]) -> None:
+def write_report(results: list[dict], n_measures: int, baseline_avg: float, baseline_per_class: list[float],
+                 orthogonalized: bool = False) -> None:
     baseline_cols = " ".join(f"{b:.2f}" for b in baseline_per_class)
+    ortho_note = (" (COUNTRY-ORTHOGONALIZED: direct-signal subspace projected out of both the training "
+                  "embeddings and these measure embeddings)") if orthogonalized else ""
     lines = [
-        "NOT-YET-EFFECTIVE MEASURES — AUTHORSHIP BY CENSORED-TRAINED WP MODELS (uncensored input)",
+        f"NOT-YET-EFFECTIVE MEASURES — AUTHORSHIP BY CENSORED-TRAINED WP MODELS (uncensored input){ortho_note}",
         f"Countries: {', '.join(cc.COUNTRIES)}",
         f"Measures scored: {n_measures}  (raw measure Content, embedded whole-document, no censorship)",
         "Models were trained on CENSORED working papers; the measure text fed to them is NOT censored.",
@@ -173,7 +178,18 @@ def write_report(results: list[dict], n_measures: int, baseline_avg: float, base
     print(f"\nWrote report + {len(results)} prediction CSVs to {OUTPUT_DIR}/")
 
 
-def run() -> list[dict]:
+def run(orthogonalize_country: bool = False) -> list[dict]:
+    global OUTPUT_DIR
+    model_dir = cc.OUTPUT_DIR
+    if orthogonalize_country:
+        # Project the direct country-signal subspace out of the measure embeddings (via cc.assemble_xy)
+        # and score with the models trained on the same orthogonalized space — the OOD analogue of the
+        # --orthogonalize-country WP benchmark.
+        cc._PROJECTOR = cc.CountrySignalProjector.from_npz(cc.COUNTRY_DIRECTIONS_PATH)
+        model_dir = cc.ORTHOGONAL_OUTPUT_DIR
+        OUTPUT_DIR = ORTHOGONAL_OUTPUT_DIR
+        print(f"Orthogonalizing measure embeddings (rank-{cc._PROJECTOR.rank}) and scoring with orthogonal "
+              f"models from {model_dir}/")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading not-yet-effective measures...")
@@ -185,9 +201,9 @@ def run() -> list[dict]:
     results = []
     for slug in CENSORED_DATASETS:
         for name in cc.MODEL_NAMES:
-            pickle_path = cc.OUTPUT_DIR / f"{cc.model_slug(name)}__{slug}.pickle"
+            pickle_path = model_dir / f"{cc.model_slug(name)}__{slug}.pickle"
             if not pickle_path.exists():
-                print(f"  [skip] no pretrained model at {pickle_path.name}")
+                print(f"  [skip] no pretrained model at {pickle_path}")
                 continue
             with open(pickle_path, "rb") as f:
                 model = pickle.load(f)
@@ -200,9 +216,21 @@ def run() -> list[dict]:
                   f"  -> {pred_path.name}")
 
     baseline_avg, baseline_per_class = random_guess_baseline(records)
-    write_report(results, len(records), baseline_avg, baseline_per_class)
+    write_report(results, len(records), baseline_avg, baseline_per_class, orthogonalized=orthogonalize_country)
     return results
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--orthogonalize-country", action="store_true",
+        help="Project the direct country-signal subspace out of the measure embeddings and score with "
+             "the country-orthogonal models (data/author_classification_models_orthogonal/). Writes to "
+             "data/not_effective_measure_predictions_orthogonal/.",
+    )
+    args = parser.parse_args()
+    run(orthogonalize_country=args.orthogonalize_country)
+
+
 if __name__ == "__main__":
-    run()
+    main()
