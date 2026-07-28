@@ -26,6 +26,11 @@ Outputs land in `adhoc_analyses/output/`.
   manifold (every measure has a WP neighbour ~0.10 away, vs a ~0.43 typical WP-WP
   gap), so it is a decision-boundary problem, not OOD coverage.
 
+- `wp_topic_circles.py` — circle-packing figure of the working-paper-only BERTopic
+  topics (from `antarctic_ladder_metrics.topic_introduction.get_wp_bertopic()`), one
+  circle per topic with area proportional to its working-paper count. Unlike the rest
+  of this folder it writes to `data/topic_figures/wp_topic_circles.png` (git-ignored).
+
 
 The latency analyses that build on this (matching instruments to preceding
 working papers, and the similarity-threshold exploration) now live in

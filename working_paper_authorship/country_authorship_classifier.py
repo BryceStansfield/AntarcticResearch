@@ -43,6 +43,7 @@ from embeddings.working_paper_semantic_filter import get_or_classify
 from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding, has_embedding
 from embeddings.embed_all_documents import embed_document_set
 from working_paper_authorship.country_signal_projection import CountrySignalProjector
+from working_paper_authorship.authorship_performance_figures import render_all_figures
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -567,6 +568,9 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
 
     baseline_avg, baseline_per_class = random_guess_baseline(val)
     write_report(results, baseline_avg, baseline_per_class)
+    # Figures are rendered from the persisted reports of *both* runs (full-space and orthogonal),
+    # not from this run's in-memory results, so the comparison figure appears once both exist.
+    render_all_figures()
 
     if final_test_eval:
         print("\nFinal held-out test evaluation (refitting each dataset's best model on train+val)...")

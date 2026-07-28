@@ -1,9 +1,8 @@
 """BERTopic over OCR'd documents using OpenRouter qwen/qwen3-embedding-8b embeddings."""
 from bertopic import BERTopic
-from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
-from embeddings.bertopic_backend import OpenRouterBackend, topic_vectorizer
+from embeddings.bertopic_backend import OpenRouterBackend, bertopic_umap, topic_vectorizer
 from antarctic_ladder_metrics.constants import DECADE_BUCKETS, START_YEAR, END_YEAR
 import country_meta_info
 
@@ -17,7 +16,10 @@ class WPBertTopic():
         documents = self.document_text_getter.get_all_of_type("WorkingPaper")
         self.documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
 
-        umap_model = UMAP(random_state=42)
+        # BERTopic's own default reducer, seeded. See bertopic_umap: a bare UMAP(random_state=42)
+        # is umap-learn's defaults, a much more crowded 2-D euclidean space than the 5-D cosine
+        # one BERTopic clusters in, and HDBSCAN sent far more papers to the outlier topic there.
+        umap_model = bertopic_umap()
         # OpenRouterBackend subclasses BERTopic's BaseEmbedder. That matters: a
         # duck-typed embedder (just an `.encode` method) is not recognised by
         # bertopic.backend.select_backend, which silently falls through to

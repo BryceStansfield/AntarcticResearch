@@ -46,12 +46,17 @@ import concurrent.futures
 import hashlib
 
 import numpy as np
+from bertopic import BERTopic
 from bertopic.backend import BaseEmbedder
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer
 
 import embeddings.document_embeddings as document_embeddings
 
 REPRESENTATION_TYPE = "BERTopicRepr"
+
+# Seed for the shared UMAP below. BERTopic leaves UMAP unseeded, which makes a fit
+# irreproducible; every topic model here fixes it to the same value.
+UMAP_RANDOM_STATE = 42
 
 # ATCM documents carry a masthead repeating the meeting's name in English,
 # Spanish, French and Russian ("ANTARCTIC TREATY / TRATADO ANTARTICO / FOURTH
@@ -69,6 +74,26 @@ MASTHEAD_STOP_WORDS = frozenset({
     "traite", "quatrieme", "antarctique",
     "la", "las", "los", "el", "les", "del", "sur", "en", "du", "des",
 })
+
+
+def bertopic_umap(random_state: int = UMAP_RANDOM_STATE):
+    """BERTopic's own default dimensionality reducer, seeded so a fit is reproducible.
+
+    Read off an unfitted BERTopic rather than constructed here, because the two sets of
+    defaults are not the same reducer at all. BERTopic builds
+    ``UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine")`` when
+    ``umap_model`` is left unset -- five dimensions, clusters allowed to compact fully, and
+    cosine, all chosen so HDBSCAN has room to separate them. A bare ``UMAP(random_state=42)``
+    is *umap-learn's* defaults instead: two components, ``min_dist=0.1``, euclidean. Passing
+    one to seed the fit therefore silently swapped the clustering space for a far more
+    crowded one, and everything HDBSCAN could not fit into it became an outlier.
+
+    Taking the instance BERTopic constructs keeps these models on BERTopic's defaults if
+    those ever move; the seed is the only thing overridden.
+    """
+    umap_model = BERTopic().umap_model
+    umap_model.random_state = random_state
+    return umap_model
 
 
 def topic_vectorizer(min_df: int = 2) -> CountVectorizer:

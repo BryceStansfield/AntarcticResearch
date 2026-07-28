@@ -29,10 +29,9 @@ import pathlib
 import numpy as np
 import pandas as pd
 from bertopic import BERTopic
-from umap import UMAP
 
 import embeddings.document_embeddings as document_embeddings
-from embeddings.bertopic_backend import mean_pool, topic_vectorizer
+from embeddings.bertopic_backend import bertopic_umap, mean_pool, topic_vectorizer
 from working_paper_authorship.country_signal_projection import CountrySignalProjector
 
 OUTPUT_DIR = pathlib.Path("adhoc_analyses/output")
@@ -40,8 +39,8 @@ MEASURE_CORPUS = pathlib.Path("data/MeasureCorpusEnriched.csv")
 # Direct country-signal directions recovered by direct_country_signal_probe --all-wps.
 COUNTRY_DIRECTIONS_PATH = pathlib.Path("data/country_signal/direct_country_directions_allwps.npz")
 
-# Matches topic_introduction.py so the two models stay comparable.
-UMAP_RANDOM_STATE = 42
+# Matches topic_introduction.py so the two models stay comparable: both cluster with
+# bertopic_umap() (BERTopic's own default reducer, seeded) at this minimum topic size.
 MIN_TOPIC_SIZE = 5
 
 
@@ -148,7 +147,7 @@ def fit_combined_topic_model(docs: list[dict]) -> tuple[BERTopic, list[int]]:
     # With no representation model there is nothing to embed at labelling time,
     # so BERTopic needs no embedding_model at all.
     topic_model = BERTopic(
-        umap_model=UMAP(random_state=UMAP_RANDOM_STATE),
+        umap_model=bertopic_umap(),
         min_topic_size=MIN_TOPIC_SIZE,
         vectorizer_model=vectorizer_model,
         verbose=True,
