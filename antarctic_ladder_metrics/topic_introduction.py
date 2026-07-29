@@ -16,25 +16,11 @@ class WPBertTopic():
         documents = self.document_text_getter.get_all_of_type("WorkingPaper")
         self.documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
 
-        # BERTopic's own default reducer, seeded. See bertopic_umap: a bare UMAP(random_state=42)
-        # is umap-learn's defaults, a much more crowded 2-D euclidean space than the 5-D cosine
-        # one BERTopic clusters in, and HDBSCAN sent far more papers to the outlier topic there.
+        # NOTE:
+        # This exists because UMAP(random_state=42) has some weird default settings, like mapping to 2d
+        # And using euclidean distance. This mistake lead to bad clustering and large numbers of outliers.
         umap_model = bertopic_umap()
-        # OpenRouterBackend subclasses BERTopic's BaseEmbedder. That matters: a
-        # duck-typed embedder (just an `.encode` method) is not recognised by
-        # bertopic.backend.select_backend, which silently falls through to
-        # all-MiniLM-L6-v2 -- so the model would run on 384-dim MiniLM with a
-        # 256-token input limit instead of these Qwen3-8B embeddings.
-        #
-        # Labels come from c-TF-IDF. Embedding-based representation (MMR /
-        # KeyBERTInspired) was tried and rejected: it ranks candidate words by
-        # similarity to the topic centroid, which in an all-Antarctic corpus
-        # promotes corpus-wide vocabulary ("antarctic" reached the top-10 of 112
-        # of 164 topics in the combined WP+measure model, versus 4 under
-        # c-TF-IDF). It also only ever affected the topic_test.txt report --
-        # TopicIntroduction and TopicDiversity read the HDBSCAN assignments,
-        # which representation models never touch -- while costing thousands of
-        # per-word embedding calls.
+
         self.topic_model = BERTopic(embedding_model=OpenRouterBackend(), umap_model=umap_model, min_topic_size=5, vectorizer_model=topic_vectorizer(), verbose=True)
         self.topics, self.probs = self.topic_model.fit_transform([d["text"] for d in self.documents])
 
@@ -151,12 +137,7 @@ class TopicDiversity():
         return "Working Paper Topic Diversity"
 
     def save_full_figures(self, path: str):
-        # Per DECADE_BUCKETS. Only the distinct-topic *count* is re-evaluated per
-        # window -- the topic model and its assignments are global and untouched.
-        # The buckets tile START_YEAR..END_YEAR exactly, so every document counted
-        # in country_dict() falls in exactly one period; the decade values still do
-        # NOT add up to it, since a topic a country worked in several decades counts
-        # once overall but once per decade.
+        # Per DECADE_BUCKETS
         period_figures = []
         for label, min_year, max_year in DECADE_BUCKETS:
             for country, diversity in sorted(self._diversity_within(min_year, max_year).items()):
