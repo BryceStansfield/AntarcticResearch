@@ -27,7 +27,7 @@ country_alternative_names = CaseInsensitiveDict.from_dict({
     "Republic of Korea": ["South Korea", "Korea", "S Korea", "Korea (ROK)"],
     "Czechia": ["Czech Republic"],
     "Russia": ["Russian Federation"],
-    "United States": ["United States of America", "USA", "United States", "US"],
+    "United States": ["United States of America", "USA", "US"],
     "New Zealand": ["NZ"],
     "United Kingdom": ["UK"],
     "Turkey": ["türkiye"],
@@ -39,20 +39,31 @@ alternative_names_to_countries = CaseInsensitiveDict.from_dict({
     alt: c1 for c1, alts in country_alternative_names.items() for alt in alts
 })
 
-def get_country_value_from_dict(country_dict, country_name):
+def get_country_value_from_dict(country_dict, country_name, missing=0):
+    """Sum a country's entries, returning `missing` if it matches no key at all.
+
+    `missing` defaults to 0 because most figures are counts, where a country absent
+    from the dict genuinely scored zero. Figures whose values are averages must pass
+    float("nan") instead: for those, 0 is not an absence but the best attainable
+    score, so defaulting would silently rank an unmeasured country top.
+    """
     country_dict = CaseInsensitiveDict.from_dict(country_dict)
-    s = 0
 
-    # First we try the country name as-is.
-    if country_name in country_dict:
-        s += country_dict[country_name]
+    # The canonical name and its alternatives are deduplicated before summing. An
+    # alias list that repeats the canonical name would otherwise match the same dict
+    # entry twice and silently double that country's figure.
+    names = [country_name] + list(country_alternative_names.get(country_name, []))
+    seen = set()
+    values = []
+    for name in names:
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if name in country_dict:
+            values.append(country_dict[name])
 
-    # Next we try any alternative names.
-    for alt_name in country_alternative_names.get(country_name, []):
-        if alt_name in country_dict:
-            s += country_dict[alt_name]
-
-    return s
+    return sum(values) if values else missing
 
 def check_dict_coverage(country_dict, countries):
     country_dict = CaseInsensitiveDict.from_dict(country_dict)

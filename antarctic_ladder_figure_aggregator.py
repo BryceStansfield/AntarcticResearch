@@ -25,7 +25,10 @@ def aggregate_all_figures():
     for country in countries:
         row = {"Country": country}
         for figure, cdict in zip(figures, figure_dicts):
-            row[figure.figure_title()] = country_meta_info.get_country_value_from_dict(cdict, country)
+            # Figures default to 0 for a country they never saw; those reporting an
+            # average override MISSING_VALUE, since 0 is a real score there.
+            row[figure.figure_title()] = country_meta_info.get_country_value_from_dict(
+                cdict, country, getattr(figure, "MISSING_VALUE", 0))
         results = pd.concat([results, pd.DataFrame([row])], ignore_index=True)
 
     print("\n--- Coverage Check ---")

@@ -5,6 +5,13 @@ import country_meta_info
 from antarctic_ladder_metrics.constants import END_YEAR
 
 class RatificationSpeed():
+    # This figure is a mean delay, not a count, so a country missing from the result
+    # is not a zero-delay ratifier -- it was never a Consultative Party across the
+    # window (Czechia only became one in 2014, after the last qualifying measure),
+    # and so has no ratification behaviour to measure. Defaulting it to 0 would rank
+    # it the fastest of all 28; NaN keeps it out of the comparison entirely.
+    MISSING_VALUE = float("nan")
+
     def __init__(self) -> None:
         scrape_and_enrich_measures("data/MeasureCorpus.csv", "data/MeasureCorpusEnriched.csv")
 
