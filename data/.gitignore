@@ -9,3 +9,7 @@ topic_test.txt
 yearly/*
 semantic_filter_debug*
 author_classification_models*
+# Benchmark bar charts; regenerate via working_paper_authorship.authorship_performance_figures
+author_classification_figures/
+# Topic circle packing; regenerate via antarctic_ladder_metrics.wp_topic_circles
+topic_figures/
