@@ -1,5 +1,5 @@
 START_YEAR = 2000
-END_YEAR = 2024
+END_YEAR = 2025
 
 # Some metrics are meaningless over a single year and are reported per decade
 # instead: topic diversity degenerates into a publication count, and collaboration

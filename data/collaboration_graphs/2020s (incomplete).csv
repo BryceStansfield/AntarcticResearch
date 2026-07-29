@@ -2,216 +2,247 @@ Edge1,Edge2,Weight
 argentina,australia,3
 argentina,belgium,1
 argentina,bulgaria,1
-argentina,chile,5
+argentina,chile,8
 argentina,czechia,1
+argentina,ecuador,1
 argentina,finland,2
-argentina,france,4
-argentina,germany,1
+argentina,france,5
+argentina,germany,2
+argentina,iaato,1
 argentina,india,1
 argentina,italy,1
 argentina,japan,1
-argentina,korea (rok),1
+argentina,korea (rok),2
 argentina,netherlands,1
-argentina,new zealand,3
+argentina,new zealand,4
 argentina,norway,5
 argentina,peru,1
 argentina,poland,1
 argentina,scar,1
-argentina,spain,2
+argentina,spain,4
 argentina,sweden,1
 argentina,ukraine,1
-argentina,united kingdom,5
+argentina,united kingdom,7
 argentina,united states,4
-argentina,uruguay,1
-asoc,australia,2
-asoc,belgium,2
-asoc,brazil,1
-asoc,bulgaria,1
-asoc,chile,1
-asoc,comnap,1
-asoc,estonia,1
+argentina,uruguay,4
+asoc,australia,3
+asoc,belarus,1
+asoc,belgium,3
+asoc,brazil,2
+asoc,bulgaria,2
+asoc,chile,2
+asoc,comnap,2
+asoc,czechia,1
+asoc,estonia,2
 asoc,finland,2
-asoc,france,2
+asoc,france,3
 asoc,germany,1
-asoc,iaato,1
-asoc,india,1
-asoc,italy,1
-asoc,korea (rok),1
+asoc,iaato,2
+asoc,india,2
+asoc,italy,2
+asoc,korea (rok),2
+asoc,malaysia,1
 asoc,netherlands,1
 asoc,norway,1
-asoc,poland,1
-asoc,portugal,1
-asoc,romania,1
-asoc,scar,2
-asoc,spain,1
+asoc,poland,2
+asoc,portugal,2
+asoc,romania,2
+asoc,scar,3
+asoc,spain,2
 asoc,sweden,1
-asoc,türkiye,1
-asoc,united kingdom,2
+asoc,türkiye,2
+asoc,united kingdom,3
 asoc,united states,2
-asoc,uruguay,1
-asoc,venezuela,1
-asoc,wmo,1
-australia,belgium,7
-australia,brazil,1
-australia,bulgaria,2
-australia,chile,3
-australia,china,3
-australia,comnap,1
-australia,czechia,1
-australia,estonia,1
+asoc,uruguay,2
+asoc,venezuela,2
+asoc,wmo,2
+australia,belarus,1
+australia,belgium,10
+australia,brazil,2
+australia,bulgaria,3
+australia,chile,4
+australia,china,4
+australia,comnap,2
+australia,czechia,2
+australia,estonia,2
 australia,finland,6
-australia,france,8
+australia,france,9
 australia,germany,9
-australia,iaato,1
-australia,india,4
-australia,italy,4
+australia,iaato,2
+australia,india,5
+australia,italy,5
 australia,japan,2
-australia,korea (rok),3
+australia,korea (rok),5
+australia,malaysia,1
 australia,monaco,1
-australia,netherlands,5
-australia,new zealand,13
-australia,norway,12
+australia,netherlands,7
+australia,new zealand,16
+australia,norway,15
 australia,peru,1
-australia,poland,2
-australia,portugal,1
-australia,romania,1
+australia,poland,3
+australia,portugal,2
+australia,romania,2
 australia,russian federation,1
-australia,scar,5
+australia,scar,7
 australia,south africa,1
-australia,spain,5
+australia,spain,7
 australia,sweden,7
-australia,türkiye,1
+australia,türkiye,2
 australia,ukraine,1
-australia,united kingdom,14
+australia,united kingdom,19
 australia,united states,15
-australia,uruguay,3
-australia,venezuela,1
-australia,wmo,1
-belgium,brazil,5
-belgium,bulgaria,6
-belgium,chile,6
+australia,uruguay,4
+australia,venezuela,2
+australia,wmo,2
+belarus,belgium,1
+belarus,brazil,1
+belarus,bulgaria,1
+belarus,chile,1
+belarus,comnap,1
+belarus,czechia,1
+belarus,estonia,1
+belarus,france,1
+belarus,iaato,1
+belarus,india,1
+belarus,italy,1
+belarus,korea (rok),1
+belarus,malaysia,1
+belarus,poland,1
+belarus,portugal,1
+belarus,romania,1
+belarus,scar,1
+belarus,spain,1
+belarus,türkiye,1
+belarus,united kingdom,1
+belarus,uruguay,1
+belarus,venezuela,1
+belarus,wmo,1
+belgium,brazil,7
+belgium,bulgaria,8
+belgium,chile,8
 belgium,china,1
-belgium,comnap,2
-belgium,czechia,2
-belgium,estonia,1
+belgium,comnap,3
+belgium,czechia,3
+belgium,estonia,2
 belgium,finland,8
-belgium,france,7
+belgium,france,8
 belgium,germany,7
-belgium,iaato,2
-belgium,india,5
-belgium,italy,3
-belgium,japan,3
-belgium,korea (rok),3
-belgium,malaysia,1
-belgium,netherlands,7
-belgium,new zealand,4
-belgium,norway,7
+belgium,iaato,3
+belgium,india,6
+belgium,italy,4
+belgium,japan,4
+belgium,korea (rok),4
+belgium,malaysia,2
+belgium,netherlands,8
+belgium,new zealand,5
+belgium,norway,8
 belgium,peru,1
-belgium,poland,4
-belgium,portugal,5
-belgium,romania,2
-belgium,scar,4
+belgium,poland,5
+belgium,portugal,7
+belgium,romania,3
+belgium,scar,6
 belgium,south africa,2
-belgium,spain,8
+belgium,spain,11
 belgium,sweden,6
-belgium,türkiye,4
+belgium,türkiye,5
 belgium,ukraine,1
-belgium,united kingdom,12
+belgium,united kingdom,16
 belgium,united states,8
-belgium,uruguay,2
-belgium,venezuela,1
-belgium,wmo,1
-brazil,bulgaria,5
-brazil,chile,5
-brazil,comnap,2
-brazil,czechia,1
+belgium,uruguay,3
+belgium,venezuela,2
+belgium,wmo,2
+brazil,bulgaria,7
+brazil,chile,7
+brazil,comnap,3
+brazil,czechia,2
 brazil,ecuador,1
-brazil,estonia,1
+brazil,estonia,2
 brazil,finland,2
-brazil,france,1
-brazil,iaato,2
-brazil,india,2
-brazil,italy,2
-brazil,korea (rok),2
-brazil,malaysia,1
+brazil,france,2
+brazil,iaato,3
+brazil,india,3
+brazil,italy,3
+brazil,japan,1
+brazil,korea (rok),3
+brazil,malaysia,2
 brazil,peru,1
-brazil,poland,3
-brazil,portugal,5
-brazil,romania,2
-brazil,scar,2
+brazil,poland,4
+brazil,portugal,7
+brazil,romania,3
+brazil,scar,3
 brazil,south africa,1
-brazil,spain,5
-brazil,türkiye,1
-brazil,united kingdom,5
+brazil,spain,7
+brazil,türkiye,2
+brazil,united kingdom,7
 brazil,united states,3
-brazil,uruguay,1
-brazil,venezuela,1
-brazil,wmo,1
-bulgaria,chile,6
-bulgaria,comnap,2
-bulgaria,czechia,2
-bulgaria,estonia,1
+brazil,uruguay,2
+brazil,venezuela,2
+brazil,wmo,2
+bulgaria,chile,8
+bulgaria,comnap,3
+bulgaria,czechia,3
+bulgaria,estonia,2
 bulgaria,finland,3
-bulgaria,france,2
+bulgaria,france,3
 bulgaria,germany,1
-bulgaria,iaato,2
-bulgaria,india,3
-bulgaria,italy,3
-bulgaria,japan,1
-bulgaria,korea (rok),3
-bulgaria,malaysia,1
+bulgaria,iaato,3
+bulgaria,india,4
+bulgaria,italy,4
+bulgaria,japan,2
+bulgaria,korea (rok),4
+bulgaria,malaysia,2
 bulgaria,netherlands,1
 bulgaria,new zealand,1
 bulgaria,norway,1
 bulgaria,peru,1
-bulgaria,poland,3
-bulgaria,portugal,5
-bulgaria,romania,2
-bulgaria,scar,2
+bulgaria,poland,4
+bulgaria,portugal,7
+bulgaria,romania,3
+bulgaria,scar,3
 bulgaria,south africa,1
-bulgaria,spain,6
+bulgaria,spain,8
 bulgaria,sweden,1
-bulgaria,türkiye,1
+bulgaria,türkiye,2
 bulgaria,ukraine,1
-bulgaria,united kingdom,6
+bulgaria,united kingdom,8
 bulgaria,united states,3
-bulgaria,uruguay,2
-bulgaria,venezuela,1
-bulgaria,wmo,1
-ccamlr,comnap,1
-ccamlr,iaato,1
-ccamlr,scar,1
-chile,comnap,2
-chile,czechia,2
-chile,estonia,1
+bulgaria,uruguay,3
+bulgaria,venezuela,2
+bulgaria,wmo,2
+ccamlr,comnap,2
+ccamlr,iaato,2
+ccamlr,scar,2
+chile,comnap,3
+chile,czechia,3
+chile,estonia,2
 chile,finland,3
-chile,france,4
-chile,germany,3
-chile,iaato,2
-chile,india,3
-chile,italy,3
-chile,japan,1
-chile,korea (rok),3
-chile,malaysia,1
+chile,france,6
+chile,germany,4
+chile,iaato,4
+chile,india,4
+chile,italy,4
+chile,japan,2
+chile,korea (rok),5
+chile,malaysia,2
 chile,monaco,2
 chile,netherlands,1
-chile,new zealand,3
+chile,new zealand,4
 chile,norway,2
 chile,peru,1
-chile,poland,3
-chile,portugal,5
-chile,romania,2
-chile,scar,3
+chile,poland,4
+chile,portugal,7
+chile,romania,3
+chile,scar,4
 chile,south africa,4
-chile,spain,9
+chile,spain,13
 chile,sweden,1
-chile,türkiye,1
+chile,türkiye,2
 chile,ukraine,1
-chile,united kingdom,11
+chile,united kingdom,16
 chile,united states,4
-chile,uruguay,2
-chile,venezuela,1
-chile,wmo,1
+chile,uruguay,5
+chile,venezuela,2
+chile,wmo,2
 china,finland,1
 china,germany,1
 china,india,2
@@ -223,72 +254,78 @@ china,scar,1
 china,sweden,1
 china,united kingdom,1
 china,united states,2
-comnap,czechia,1
-comnap,estonia,1
+comnap,czechia,2
+comnap,estonia,2
 comnap,finland,2
-comnap,france,1
-comnap,iaato,3
-comnap,india,2
-comnap,italy,2
-comnap,korea (rok),2
-comnap,malaysia,1
-comnap,poland,2
-comnap,portugal,2
-comnap,romania,2
-comnap,scar,3
+comnap,france,2
+comnap,iaato,5
+comnap,india,3
+comnap,italy,3
+comnap,korea (rok),3
+comnap,malaysia,2
+comnap,poland,3
+comnap,portugal,3
+comnap,romania,3
+comnap,scar,5
 comnap,south africa,1
-comnap,spain,2
-comnap,türkiye,1
-comnap,united kingdom,2
+comnap,spain,3
+comnap,türkiye,2
+comnap,united kingdom,3
 comnap,united states,2
-comnap,uruguay,1
-comnap,venezuela,1
-comnap,wmo,1
+comnap,uruguay,2
+comnap,venezuela,2
+comnap,wmo,2
+czechia,estonia,1
 czechia,finland,2
-czechia,france,1
+czechia,france,2
 czechia,germany,1
-czechia,iaato,1
-czechia,india,2
-czechia,italy,2
+czechia,iaato,2
+czechia,india,3
+czechia,italy,3
 czechia,japan,1
-czechia,korea (rok),2
-czechia,malaysia,1
+czechia,korea (rok),3
+czechia,malaysia,2
 czechia,netherlands,1
 czechia,new zealand,1
 czechia,norway,1
 czechia,peru,1
-czechia,poland,2
-czechia,portugal,1
-czechia,romania,1
-czechia,scar,1
+czechia,poland,3
+czechia,portugal,2
+czechia,romania,2
+czechia,scar,2
 czechia,south africa,1
-czechia,spain,2
+czechia,spain,3
 czechia,sweden,1
+czechia,türkiye,1
 czechia,ukraine,1
-czechia,united kingdom,2
+czechia,united kingdom,3
 czechia,united states,2
-czechia,uruguay,1
+czechia,uruguay,2
+czechia,venezuela,1
+czechia,wmo,1
 ecuador,peru,1
 ecuador,poland,1
 ecuador,spain,1
 ecuador,united states,2
+ecuador,uruguay,1
 estonia,finland,1
-estonia,france,1
-estonia,iaato,1
-estonia,india,1
-estonia,italy,1
-estonia,korea (rok),1
-estonia,poland,1
-estonia,portugal,1
-estonia,romania,1
-estonia,scar,1
-estonia,spain,1
-estonia,türkiye,1
-estonia,united kingdom,1
+estonia,france,2
+estonia,iaato,2
+estonia,india,2
+estonia,italy,2
+estonia,korea (rok),2
+estonia,malaysia,1
+estonia,poland,2
+estonia,portugal,2
+estonia,romania,2
+estonia,scar,2
+estonia,spain,2
+estonia,türkiye,2
+estonia,united kingdom,2
 estonia,united states,1
-estonia,uruguay,1
-estonia,venezuela,1
-estonia,wmo,1
+estonia,uruguay,2
+estonia,venezuela,2
+estonia,wmo,2
 finland,france,9
 finland,germany,10
 finland,iaato,2
@@ -315,39 +352,40 @@ finland,united states,6
 finland,uruguay,3
 finland,venezuela,1
 finland,wmo,1
-france,germany,13
-france,iaato,1
-france,india,5
-france,italy,2
+france,germany,14
+france,iaato,2
+france,india,6
+france,italy,3
 france,japan,1
-france,korea (rok),2
-france,monaco,3
+france,korea (rok),4
+france,malaysia,1
+france,monaco,4
 france,netherlands,9
-france,new zealand,6
-france,norway,7
+france,new zealand,7
+france,norway,8
 france,peru,1
-france,poland,3
-france,portugal,1
-france,romania,1
-france,scar,2
+france,poland,4
+france,portugal,2
+france,romania,2
+france,scar,3
 france,south africa,3
-france,spain,6
+france,spain,7
 france,sweden,4
-france,türkiye,2
+france,türkiye,3
 france,ukraine,1
-france,united kingdom,14
+france,united kingdom,17
 france,united states,9
-france,uruguay,3
-france,venezuela,1
-france,wmo,1
+france,uruguay,5
+france,venezuela,2
+france,wmo,2
 germany,india,6
 germany,italy,2
-germany,japan,3
+germany,japan,4
 germany,korea (rok),1
-germany,monaco,3
+germany,monaco,4
 germany,netherlands,8
 germany,new zealand,7
-germany,norway,11
+germany,norway,12
 germany,peru,1
 germany,poland,2
 germany,scar,2
@@ -356,146 +394,151 @@ germany,spain,6
 germany,sweden,7
 germany,türkiye,1
 germany,ukraine,1
-germany,united kingdom,15
+germany,united kingdom,17
 germany,united states,13
-germany,uruguay,2
-iaato,india,2
-iaato,italy,2
-iaato,korea (rok),2
-iaato,malaysia,1
-iaato,poland,2
-iaato,portugal,2
-iaato,romania,2
-iaato,scar,3
+germany,uruguay,3
+iaato,india,3
+iaato,italy,3
+iaato,korea (rok),3
+iaato,malaysia,2
+iaato,poland,3
+iaato,portugal,3
+iaato,romania,3
+iaato,scar,5
 iaato,south africa,1
-iaato,spain,2
-iaato,türkiye,1
-iaato,united kingdom,2
+iaato,spain,4
+iaato,türkiye,2
+iaato,united kingdom,5
 iaato,united states,3
-iaato,uruguay,1
-iaato,venezuela,1
-iaato,wmo,1
-india,italy,3
+iaato,uruguay,2
+iaato,venezuela,2
+iaato,wmo,2
+india,italy,4
 india,japan,2
-india,korea (rok),3
-india,malaysia,1
+india,korea (rok),4
+india,malaysia,2
 india,netherlands,4
 india,new zealand,2
 india,norway,5
 india,peru,1
-india,poland,4
-india,portugal,2
-india,romania,2
+india,poland,5
+india,portugal,3
+india,romania,3
 india,russian federation,1
-india,scar,3
+india,scar,4
 india,south africa,1
-india,spain,4
+india,spain,5
 india,sweden,2
-india,türkiye,2
+india,türkiye,3
 india,ukraine,1
-india,united kingdom,7
+india,united kingdom,8
 india,united states,4
-india,uruguay,2
-india,venezuela,1
-india,wmo,1
+india,uruguay,3
+india,venezuela,2
+india,wmo,2
 italy,japan,1
-italy,korea (rok),4
-italy,malaysia,1
-italy,netherlands,2
+italy,korea (rok),5
+italy,malaysia,2
+italy,netherlands,3
 italy,new zealand,2
 italy,norway,1
 italy,peru,1
-italy,poland,3
-italy,portugal,2
-italy,romania,2
-italy,scar,3
+italy,poland,4
+italy,portugal,3
+italy,romania,3
+italy,scar,4
 italy,south africa,1
-italy,spain,3
+italy,spain,4
 italy,sweden,2
-italy,türkiye,1
+italy,türkiye,2
 italy,ukraine,1
-italy,united kingdom,5
+italy,united kingdom,7
 italy,united states,7
-italy,uruguay,2
-italy,venezuela,1
-italy,wmo,1
+italy,uruguay,3
+italy,venezuela,2
+italy,wmo,2
 japan,korea (rok),1
 japan,netherlands,2
 japan,new zealand,1
 japan,norway,3
 japan,peru,1
 japan,poland,1
+japan,portugal,1
 japan,scar,1
-japan,spain,1
+japan,spain,2
 japan,sweden,3
 japan,ukraine,1
-japan,united kingdom,1
+japan,united kingdom,3
 japan,united states,2
 japan,uruguay,1
-korea (rok),malaysia,1
-korea (rok),netherlands,1
-korea (rok),new zealand,2
+korea (rok),malaysia,2
+korea (rok),netherlands,2
+korea (rok),new zealand,3
 korea (rok),norway,1
 korea (rok),peru,1
-korea (rok),poland,3
-korea (rok),portugal,2
-korea (rok),romania,2
-korea (rok),scar,3
+korea (rok),poland,4
+korea (rok),portugal,3
+korea (rok),romania,3
+korea (rok),scar,4
 korea (rok),south africa,1
-korea (rok),spain,3
+korea (rok),spain,4
 korea (rok),sweden,1
-korea (rok),türkiye,1
+korea (rok),türkiye,2
 korea (rok),ukraine,1
-korea (rok),united kingdom,3
+korea (rok),united kingdom,5
 korea (rok),united states,4
-korea (rok),uruguay,2
-korea (rok),venezuela,1
-korea (rok),wmo,1
-malaysia,poland,1
-malaysia,portugal,1
-malaysia,romania,1
-malaysia,scar,1
+korea (rok),uruguay,4
+korea (rok),venezuela,2
+korea (rok),wmo,2
+malaysia,poland,2
+malaysia,portugal,2
+malaysia,romania,2
+malaysia,scar,2
 malaysia,south africa,1
-malaysia,spain,1
-malaysia,united kingdom,1
+malaysia,spain,2
+malaysia,türkiye,1
+malaysia,united kingdom,2
 malaysia,united states,1
+malaysia,uruguay,1
+malaysia,venezuela,1
+malaysia,wmo,1
 monaco,new zealand,1
-monaco,norway,1
+monaco,norway,2
 monaco,south africa,2
-monaco,united kingdom,3
+monaco,united kingdom,4
 monaco,united states,1
-netherlands,new zealand,5
-netherlands,norway,7
+netherlands,new zealand,6
+netherlands,norway,8
 netherlands,peru,1
 netherlands,poland,2
 netherlands,scar,1
-netherlands,spain,4
+netherlands,spain,6
 netherlands,sweden,6
 netherlands,türkiye,1
 netherlands,ukraine,1
-netherlands,united kingdom,9
+netherlands,united kingdom,12
 netherlands,united states,4
-netherlands,uruguay,2
-new zealand,norway,16
+netherlands,uruguay,4
+new zealand,norway,21
 new zealand,peru,1
 new zealand,poland,2
 new zealand,scar,2
 new zealand,south africa,1
-new zealand,spain,6
+new zealand,spain,7
 new zealand,sweden,4
 new zealand,türkiye,1
 new zealand,ukraine,1
-new zealand,united kingdom,18
+new zealand,united kingdom,22
 new zealand,united states,13
-new zealand,uruguay,2
+new zealand,uruguay,3
 norway,peru,1
 norway,poland,2
 norway,scar,3
-norway,spain,6
+norway,spain,7
 norway,sweden,7
 norway,türkiye,1
 norway,ukraine,1
-norway,united kingdom,21
+norway,united kingdom,25
 norway,united states,10
 norway,uruguay,2
 peru,poland,2
@@ -505,77 +548,77 @@ peru,ukraine,1
 peru,united kingdom,1
 peru,united states,2
 peru,uruguay,1
-poland,portugal,2
-poland,romania,2
-poland,scar,2
+poland,portugal,3
+poland,romania,3
+poland,scar,3
 poland,south africa,1
-poland,spain,4
+poland,spain,5
 poland,sweden,1
-poland,türkiye,2
+poland,türkiye,3
 poland,ukraine,1
-poland,united kingdom,4
+poland,united kingdom,5
 poland,united states,5
-poland,uruguay,2
-poland,venezuela,1
-poland,wmo,1
-portugal,romania,2
-portugal,scar,2
+poland,uruguay,3
+poland,venezuela,2
+poland,wmo,2
+portugal,romania,3
+portugal,scar,3
 portugal,south africa,1
-portugal,spain,5
-portugal,türkiye,1
-portugal,united kingdom,5
+portugal,spain,7
+portugal,türkiye,2
+portugal,united kingdom,7
 portugal,united states,2
-portugal,uruguay,1
-portugal,venezuela,1
-portugal,wmo,1
-romania,scar,2
+portugal,uruguay,2
+portugal,venezuela,2
+portugal,wmo,2
+romania,scar,3
 romania,south africa,1
-romania,spain,2
-romania,türkiye,1
-romania,united kingdom,2
+romania,spain,3
+romania,türkiye,2
+romania,united kingdom,3
 romania,united states,2
-romania,uruguay,1
-romania,venezuela,1
-romania,wmo,1
+romania,uruguay,2
+romania,venezuela,2
+romania,wmo,2
 scar,south africa,1
-scar,spain,2
+scar,spain,3
 scar,sweden,2
-scar,türkiye,1
-scar,united kingdom,4
+scar,türkiye,2
+scar,united kingdom,6
 scar,united states,5
-scar,uruguay,1
-scar,venezuela,1
-scar,wmo,2
+scar,uruguay,2
+scar,venezuela,2
+scar,wmo,3
 south africa,spain,1
 south africa,united kingdom,6
 south africa,united states,3
 spain,sweden,3
-spain,türkiye,2
+spain,türkiye,3
 spain,ukraine,1
-spain,united kingdom,13
+spain,united kingdom,18
 spain,united states,6
-spain,uruguay,3
-spain,venezuela,1
-spain,wmo,1
+spain,uruguay,5
+spain,venezuela,2
+spain,wmo,2
 sweden,ukraine,1
 sweden,united kingdom,5
 sweden,united states,6
 sweden,uruguay,2
-türkiye,united kingdom,4
+türkiye,united kingdom,5
 türkiye,united states,1
-türkiye,uruguay,1
-türkiye,venezuela,1
-türkiye,wmo,1
+türkiye,uruguay,2
+türkiye,venezuela,2
+türkiye,wmo,2
 ukraine,united kingdom,2
 ukraine,united states,1
 ukraine,uruguay,1
 united kingdom,united states,14
-united kingdom,uruguay,3
-united kingdom,venezuela,1
-united kingdom,wmo,1
+united kingdom,uruguay,5
+united kingdom,venezuela,2
+united kingdom,wmo,2
 united states,uruguay,2
 united states,venezuela,1
 united states,wmo,1
-uruguay,venezuela,1
-uruguay,wmo,1
-venezuela,wmo,1
+uruguay,venezuela,2
+uruguay,wmo,2
+venezuela,wmo,2

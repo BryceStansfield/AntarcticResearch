@@ -2,14 +2,19 @@ from ACTM_Measure_Scraper.src.Pipeline import scrape_and_enrich_measures
 import pandas as pd
 import country_meta_info
 
+from antarctic_ladder_metrics.constants import END_YEAR
+
 class RatificationSpeed():
     def __init__(self) -> None:
         scrape_and_enrich_measures("data/MeasureCorpus.csv", "data/MeasureCorpusEnriched.csv")
 
         measures = pd.read_csv("data/MeasureCorpusEnriched.csv")
+        # The lower bound is the 1995 ATCM reform, not the ladder's START_YEAR: it is
+        # the point from which "Measure" means the modern ratifiable instrument, so
+        # it is a definitional bound rather than a window choice.
         measures = measures[(measures["Meeting_Type"] == "ATCM")
                             & (measures["ATCM_Year"] >= 1995)
-                            & (measures["ATCM_Year"] <= 2024)
+                            & (measures["ATCM_Year"] <= END_YEAR)
                             & (measures["Type"] == "Measure")
                             & ~measures["Approvals"].str.contains("Fast Approval", na=False)
                             & (measures["Approvals"] != "")
@@ -38,8 +43,11 @@ class RatificationSpeed():
 
         # All measures of form "... (year)", "Not yet effective", or Effective dd/mm/YYYY.
         def extract_end_year(status):
+            # A measure that never took effect is right-censored at the edge of the
+            # observation window, so its delay reads as "at least this long" rather
+            # than as a completed ratification.
             if status == "Not yet effective":
-                return 2024
+                return END_YEAR
             if "Effective" in status:
                 return int(status[-4:])
             if status.endswith(')'):
@@ -94,7 +102,7 @@ class RatificationSpeed():
         # on some qualifying measure tabled that year, so a gap means "no measure
         # to ratify, or not a starred party" -- a coverage fact, not a behavioural
         # one. Failing to ratify does not produce a gap: extract_end_year censors
-        # those at the withdrawal year (or 2024 for "Not yet effective"), so a
+        # those at the withdrawal year (or END_YEAR for "Not yet effective"), so a
         # country that ratified nothing surfaces as a long delay, not a missing row.
         yearly_figures = sorted(
             ({"year": int(year), "country": country, "value": sum(delays)/len(delays)}
