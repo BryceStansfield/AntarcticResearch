@@ -217,6 +217,28 @@ def warm_intervention_cache() -> None:
         print(f"Cache warm-up failed (continuing anyway): {e}")
 
 
+def _parse_intervention_reply(reply: str, countries: list[str]) -> list[str]:
+    """Parse the LLM's `[Country, Country]`-shaped reply into the subset of `countries`
+    it mentions, matching each country by either its raw (lowercased) name or its
+    `_format_country_name`-displayed form (since the LLM is prompted with display names).
+
+    Raises ValueError if no bracketed list is found, rather than silently treating the
+    failure as "nobody intervened" - callers should let the chunk go unprocessed (so it's
+    retried on the next run) instead of writing a result for it.
+    """
+    match = re.search(r"\[(.*?)\]", reply, re.DOTALL)
+    if not match:
+        raise ValueError(f"Could not parse intervention list from LLM reply: {reply!r}")
+
+    mentioned = {p.strip().strip('"\'').lower() for p in match.group(1).split(",") if p.strip()}
+
+    display_names = {country: _format_country_name(country) for country in countries}
+    return [
+        country for country in countries
+        if country.lower() in mentioned or display_names[country].lower() in mentioned
+    ]
+
+
 def classify_intervening_parties(sentence: str, countries: list[str]) -> list[str]:
     """Ask the LLM which of the mentioned countries actively intervened in the sentence.
 
@@ -236,19 +258,10 @@ def classify_intervening_parties(sentence: str, countries: list[str]) -> list[st
     )
     reply = response.choices[0].message.content or ""
 
-    match = re.search(r"\[(.*?)\]", reply, re.DOTALL)
-    if not match:
-        raise ValueError(f"Could not parse intervention list from LLM reply: {reply!r}")
+    return _parse_intervention_reply(reply, countries)
 
-    mentioned = {p.strip().strip('"\'').lower() for p in match.group(1).split(",") if p.strip()}
-
-    return [
-        country for country in countries
-        if country.lower() in mentioned or display_names[country].lower() in mentioned
-    ]
-
-def _get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(METRICS_DB_PATH)
+def _get_connection(db_path: pathlib.Path = METRICS_DB_PATH) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS chunks (
             document    TEXT    NOT NULL,
@@ -265,8 +278,8 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
-def get_document(document: str, chunk_num: int) -> dict | None:
-    with _get_connection() as conn:
+def get_document(document: str, chunk_num: int, db_path: pathlib.Path = METRICS_DB_PATH) -> dict | None:
+    with _get_connection(db_path) as conn:
         row = conn.execute(
             "SELECT chunk, mentioned, intervening FROM chunks WHERE document=? AND chunk_num=?",
             (document, chunk_num),
@@ -287,10 +300,11 @@ def set_document(
     mentioned: list[str] | None = None,
     intervening: list[str] | None = None,
     year: int | None = None,
+    db_path: pathlib.Path = METRICS_DB_PATH,
 ) -> None:
     for attempt in range(3):
         try:
-            with _get_connection() as conn:
+            with _get_connection(db_path) as conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO chunks (document, chunk_num, chunk, year, mentioned, intervening) VALUES (?, ?, ?, ?, ?, ?)",
                     (document, chunk_num, chunk, year, json.dumps(mentioned or []), json.dumps(intervening or [])),
@@ -301,15 +315,21 @@ def set_document(
                 raise
             time.sleep(random.uniform(0.1, 0.5))
 
-def check_document_exists(document: str, chunk_num: int) -> bool:
-    with _get_connection() as conn:
+def check_document_exists(document: str, chunk_num: int, db_path: pathlib.Path = METRICS_DB_PATH) -> bool:
+    with _get_connection(db_path) as conn:
         row = conn.execute(
             "SELECT 1 FROM chunks WHERE document=? AND chunk_num=?",
             (document, chunk_num),
         ).fetchone()
     return row is not None
 
-def get_country_figures(country: str, must_be_intervention: bool, min_year: int | None = None, max_year: int | None = None):
+def get_country_figures(
+    country: str,
+    must_be_intervention: bool,
+    min_year: int | None = None,
+    max_year: int | None = None,
+    db_path: pathlib.Path = METRICS_DB_PATH,
+):
     column = "intervening" if must_be_intervention else "mentioned"
     conditions = [f"{column} LIKE ?"]
     params: list = [f'%"{country}"%']
@@ -323,7 +343,7 @@ def get_country_figures(country: str, must_be_intervention: bool, min_year: int 
 
     where = " AND ".join(conditions)
     query = f"SELECT COUNT(*) FROM chunks WHERE {where}"
-    with _get_connection() as conn:
+    with _get_connection(db_path) as conn:
         return conn.execute(query, params).fetchone()[0]
 
 def get_ocrd_final_reports():

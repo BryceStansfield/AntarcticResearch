@@ -70,14 +70,17 @@ def check_dict_coverage(country_dict, countries):
     matched_keys = set()
     not_found = []
 
+    # Matches are recorded lowercased. country_dict is case-insensitive and so holds
+    # lowercased keys; recording the caller's original casing here would make the
+    # unused_keys comparison below never match, reporting every key as unused.
     for country in countries:
         found = False
         if country in country_dict:
-            matched_keys.add(country)
+            matched_keys.add(country.lower())
             found = True
         for alt_name in country_alternative_names.get(country, []):
             if alt_name in country_dict:
-                matched_keys.add(alt_name)
+                matched_keys.add(alt_name.lower())
                 found = True
         if not found:
             not_found.append(country)

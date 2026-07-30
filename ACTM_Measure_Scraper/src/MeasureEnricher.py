@@ -37,10 +37,14 @@ def enrich_measure_data(measures_df_path = 'data/MeasureCorpus.csv', output_path
     df['ATCM_Year'] = df.apply(lambda x: meeting_to_year(x['ATCM_Number']) if pd.isna(x['ATCM_Year']) and x['ATCM_Number'] in meeting_dict_map else x['ATCM_Year'], axis=1)
     df['Type'] = df['Title'].str.extract(r'^(Resolution|Decision|Measure|Recommendation)').iloc[:, 0]
 
-    df['Meeting_Type'] = df['Title'].apply(lambda x: 
-        'SATCM' if any(term in str(x) for term in ['SATCM', 'CCAMLR']) else 
-        ('ATCM' if any(term in str(x) for term in ['ATCM', 'CEP', 'Antarctic Conference', 'ATIP']) else 
-        ('CCAS' if 'CCAS' in str(x) else 'Unknown')))
+    # CCAMLR and CCAS are separate conventions, not Antarctic Treaty meetings, so each
+    # gets its own label. CCAMLR is tested first only for symmetry with CCAS; it shares
+    # no substring with the ATCM terms. SATCM must precede ATCM, which it contains.
+    df['Meeting_Type'] = df['Title'].apply(lambda x:
+        'CCAMLR' if 'CCAMLR' in str(x) else
+        ('CCAS' if 'CCAS' in str(x) else
+        ('SATCM' if 'SATCM' in str(x) else
+        ('ATCM' if any(term in str(x) for term in ['ATCM', 'CEP', 'Antarctic Conference', 'ATIP']) else 'Unknown'))))
 
     df.to_csv(output_path, index=False)
 

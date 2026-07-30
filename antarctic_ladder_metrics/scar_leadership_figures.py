@@ -4,10 +4,10 @@ from antarctic_ladder_metrics.constants import *
 import pandas as pd
 
 class ScarLeadershipFigures():
-    def __init__(self):
+    def __init__(self, csv_path="data/SCAR_Leadership.csv"):
         self.country_counts_by_years = {}
 
-        with open("data/SCAR_Leadership.csv", newline="", encoding="utf-8") as f:
+        with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.reader(f)
             for i, row in enumerate(reader):
                 if i < 2:  # skip the two header rows

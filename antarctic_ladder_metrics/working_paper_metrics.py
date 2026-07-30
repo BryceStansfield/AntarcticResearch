@@ -7,32 +7,77 @@ import pathlib
 
 from utils import split_parties
 
-class WorkingPaperAuthorship():
-    def __init__(self) -> None:
-        wp_authorship_table = pd.read_parquet("data/antarctic-db/processed/document-summary.parquet")
-        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
-        wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= START_YEAR) & (wp_authorship_table["meeting_year"] <= END_YEAR)]
-        wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
 
-        self.country_authorships_by_year = {}
-        for i in range(START_YEAR, END_YEAR+1):
-            authors = list(wp_authorship_table[wp_authorship_table["meeting_year"] == i]["parties"].map(split_parties))
-            
-            for pl in authors:
-                for p in pl:
-                    p = country_meta_info.normalize_country_name(p)
-                    if (i, p) in self.country_authorships_by_year:
-                        self.country_authorships_by_year[(i, p)] += 1
+def compute_wp_country_authorships(wp_authorship_table: pd.DataFrame,
+                                    start_year: int = START_YEAR,
+                                    end_year: int = END_YEAR) -> tuple[dict, dict]:
+    """Aggregate working-paper authorship counts per (year, country) and per country.
+
+    Takes the raw document-summary table -- needing only 'meeting_type', 'party_type',
+    'parties', 'meeting_year' and 'paper_id' -- plus a closed [start_year, end_year]
+    window, rather than reading the parquet path itself. That is what lets this be
+    driven over a small synthetic frame in tests without touching the real corpus;
+    see compute_ip_country_authorships in information_paper_metrics.py for the same
+    path-out-of-the-function pattern.
+
+    Returns (country_authorships_by_year, country_authorships): the first keyed by
+    (year, country), the second by country alone and equal to summing the first
+    over year.
+    """
+    wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_type"] == "ATCM") & (wp_authorship_table["party_type"] == "wp")][["parties", "meeting_year", "paper_id"]]
+    wp_authorship_table = wp_authorship_table[(wp_authorship_table["meeting_year"] >= start_year) & (wp_authorship_table["meeting_year"] <= end_year)]
+    wp_authorship_table = wp_authorship_table.drop_duplicates(subset="paper_id", keep="first")
+
+    country_authorships_by_year = {}
+    for i in range(start_year, end_year+1):
+        authors = list(wp_authorship_table[wp_authorship_table["meeting_year"] == i]["parties"].map(split_parties))
+
+        for pl in authors:
+            for p in pl:
+                p = country_meta_info.normalize_country_name(p)
+                if (i, p) in country_authorships_by_year:
+                    country_authorships_by_year[(i, p)] += 1
+                else:
+                    country_authorships_by_year[(i, p)] = 1
+
+    country_authorships = {}
+    for k in country_authorships_by_year:
+        if k[1] in country_authorships:
+            country_authorships[k[1]] += country_authorships_by_year[k]
+        else:
+            country_authorships[k[1]] = country_authorships_by_year[k]
+
+    return country_authorships_by_year, country_authorships
+
+
+def compute_wp_collaboration_diversity(author_sets: list) -> dict:
+    """Given the list of per-paper author sets (parties already split), count each
+    country's number of distinct collaborators across all papers.
+
+    Note this includes collaboration with agencies: party lists mix countries and
+    non-country entities, and nothing here filters those out -- that is intentional
+    existing behaviour, not an oversight.
+    """
+    collaborations = dict()
+    for s in author_sets:
+        for i in s:
+            for j in s:
+                if i != j:
+                    if i not in collaborations:
+                        collaborations[i] = set([j])
                     else:
-                        self.country_authorships_by_year[(i, p)] = 1
-        
-        self.country_authorships = {}
-        for k in self.country_authorships_by_year:
-            if k[1] in self.country_authorships:
-                self.country_authorships[k[1]] += self.country_authorships_by_year[k]
-            else:
-                self.country_authorships[k[1]] = self.country_authorships_by_year[k]
-            
+                        collaborations[i].add(j)
+
+    return {k: len(v) for k, v in collaborations.items()}
+
+
+class WorkingPaperAuthorship():
+    def __init__(self, parquet_path: str = "data/antarctic-db/processed/document-summary.parquet",
+                 start_year: int = START_YEAR, end_year: int = END_YEAR) -> None:
+        wp_authorship_table = pd.read_parquet(parquet_path)
+        self.country_authorships_by_year, self.country_authorships = compute_wp_country_authorships(
+            wp_authorship_table, start_year, end_year)
+
     def country_dict(self) -> dict:
         return dict(self.country_authorships)
 
@@ -93,7 +138,14 @@ class WPCollaborationGraphCentrality():
         return party_set, edge_weights
 
     def _centrality_within(self, min_year: int | None = None, max_year: int | None = None) -> dict:
-        """Katz centrality of the collaboration graph, optionally restricted to a closed year range."""
+        """Katz centrality of the collaboration graph, optionally restricted to a closed year range.
+
+        Rounded to 10 decimal places: `katz_centrality_numpy`'s underlying linear
+        solve is not guaranteed bit-identical run-to-run (BLAS summation order), so
+        without rounding, re-running this over identical input can differ in the
+        last couple of significant digits. 10dp is far below any precision this
+        figure is read at, and rounding here keeps repeated runs comparable.
+        """
         party_set, edge_weights = self._graph_within(min_year, max_year)
 
         # An empty window has no graph to run centrality over.
@@ -114,7 +166,8 @@ class WPCollaborationGraphCentrality():
         for parties, weight in sorted(edge_weights.items(), reverse=True):
             collaboration_graph.add_edge(parties[0], parties[1], weight=weight)
 
-        return networkx.centrality.katz_centrality_numpy(collaboration_graph, alpha=0.1, weight="weight")
+        centrality = networkx.centrality.katz_centrality_numpy(collaboration_graph, alpha=0.1, weight="weight")
+        return {country: round(value, 10) for country, value in centrality.items()}
 
     def country_dict(self) -> dict:
         return dict(self.centrality)
@@ -163,19 +216,8 @@ class WPCollaborationDiversity():
         for row in wp_authorship_table.itertuples():
             parties = row.parties
             author_sets.append(split_parties(parties))
-        
-        collaborations = dict()
-        for s in author_sets:
-            for i in s:
-                for j in s:
-                    if i != j:
-                        if i not in collaborations:
-                            collaborations[i] = set([j])
-                        else:
-                            collaborations[i].add(j)
 
-        # Note this includes collaboration with agencies.
-        self.diversity = {k: len(v) for k, v in collaborations.items()}
+        self.diversity = compute_wp_collaboration_diversity(author_sets)
 
     def country_dict(self) -> dict:
         return dict(self.diversity)
