@@ -389,6 +389,30 @@ def llm_censor_text(text: str, author: str) -> str:
     return " ".join(censored_chunks) if censored_chunks else text
 
 
+_phrase_cache: dict[str, list[str]] | None = None
+
+
+def llm_censor_text_cached(text: str, author: str) -> str | None:
+    """Cache-only ``llm_censor_text``: censors from the already-detected phrase lists and returns
+    ``None`` if any of the document's chunks was never sent to the LLM, instead of calling out to
+    it. For bulk read-only consumers (exports, analyses) that must not trigger paid detection —
+    the whole phrase table is read once and memoised rather than queried per chunk."""
+    global _phrase_cache
+    if _phrase_cache is None:
+        _phrase_cache = _cached_phrase_lists()
+
+    censored_chunks = []
+    for chunk in chunk_sentences(text, LLM_CHUNK_SENTENCES):
+        phrases = _phrase_cache.get(_cache_key(author, chunk))
+        if phrases is None:
+            return None
+        phrases = [p for p in phrases if p.strip()]
+        if phrases:
+            chunk = _censor_pattern(phrases).sub(PLACEHOLDER, chunk)
+        censored_chunks.append(chunk)
+    return " ".join(censored_chunks) if censored_chunks else text
+
+
 if __name__ == "__main__":
     # Populate the LLM revealing-phrase cache for every working-paper segment, then report
     # any papers with suspiciously many censored chunks and dump the highest phrase/author

@@ -88,6 +88,26 @@ def get_embeddings_by_type(document_type: str, model_uuid: str = DEFAULT_EMBEDDI
         for document_uuid, embedding in rows
     ]
 
+def get_embeddings_by_uuid(document_uuids, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> dict[str, list[float]]:
+    """Bulk lookup of many documents at once: {document_uuid: embedding} for the cached subset.
+
+    Uncached uuids are simply absent from the result. Ids are queried in batches to stay under
+    SQLite's bound-variable limit; this beats calling get_embedding in a loop, which reopens the
+    database (and re-runs the CREATE TABLE) for every single id."""
+    uuids = list(dict.fromkeys(document_uuids))
+    found: dict[str, list[float]] = {}
+    with get_connection() as conn:
+        for start in range(0, len(uuids), 900):
+            batch = uuids[start:start + 900]
+            placeholders = ",".join("?" * len(batch))
+            rows = conn.execute(
+                f"SELECT document_uuid, embedding FROM embeddings "
+                f"WHERE model_uuid=? AND document_uuid IN ({placeholders})",
+                (model_uuid, *batch),
+            ).fetchall()
+            found.update({uuid: array.array('f', embedding).tolist() for uuid, embedding in rows})
+    return found
+
 def get_all_embeddings(model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[tuple[str, list[float]]]:
     with get_connection() as conn:
         rows = conn.execute(

@@ -26,6 +26,13 @@ Outputs land in `adhoc_analyses/output/`.
   manifold (every measure has a WP neighbour ~0.10 away, vs a ~0.43 typical WP-WP
   gap), so it is a decision-boundary problem, not OOD coverage.
 
+- `export_document_embeddings.py` — dumps the cached Qwen embeddings to CSV with their
+  metadata: `working_paper_embeddings.csv` (one row per working paper x censorship
+  method {raw, naive, llm} x space {full, orthogonal}, with date, authors, title and
+  document id) and `measure_embeddings.csv` (one row per instrument x space). Cache-only
+  by default — variants that were never embedded are counted in the coverage report and
+  skipped, `--embed-missing` generates them live. The files are large; `--gzip` helps.
+
 - `wp_topic_circles.py` — circle-packing figure of the working-paper-only BERTopic
   topics (from `antarctic_ladder_metrics.topic_introduction.get_wp_bertopic()`), one
   circle per topic with area proportional to its working-paper count. Unlike the rest
