@@ -12,7 +12,15 @@ _punkt_ready = False
 def _ensure_punkt() -> None:
     global _punkt_ready
     if not _punkt_ready:
-        nltk.download("punkt_tab")
+        # Only reach for the network when the corpus is genuinely absent. nltk.download
+        # otherwise still fetches its index from raw.githubusercontent.com just to
+        # confirm an already-installed package is current, and it does so through
+        # urllib with no timeout -- so a stalled connection hangs the whole pipeline
+        # indefinitely rather than failing.
+        try:
+            nltk.data.find("tokenizers/punkt_tab")
+        except LookupError:
+            nltk.download("punkt_tab")
         _punkt_ready = True
 
 
