@@ -1,6 +1,34 @@
+import re
+
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+
+# Marker inserted between the topic span's child strings, so the boundaries the DOM already knows
+# about survive get_text(). Chosen from the C0 controls because it cannot occur in page text.
+_TOPIC_SEP = "\x1f"
+
+
+def parse_topics(topic_span) -> list[str]:
+    """The topic names in a measure's topic span.
+
+    This used to be ``get_text(strip=True).split('-')``, which splits on *every* hyphen and so
+    shattered hyphenated names: "Multi-Year Strategic Work Plan" became two topics, and 'De',
+    'Multi', 'Non' and 'based activities' all became first-class labels in the corpus.
+
+    Topic boundaries are recoverable from the markup instead: get_text with an explicit separator
+    keeps each child string distinct, and any " - " the site renders between them collapses to a
+    lone "-" piece we can drop. Should the span instead hold all the topics in one string, the
+    second pass splits that on a *spaced* hyphen, which a hyphenated word never matches. Either
+    markup shape therefore yields whole topic names."""
+    pieces = topic_span.get_text(separator=_TOPIC_SEP, strip=True).split(_TOPIC_SEP)
+    topics = []
+    for piece in pieces:
+        piece = piece.strip()
+        if not piece or piece == "-":
+            continue
+        topics.extend(part.strip() for part in re.split(r"\s+-\s+", piece) if part.strip())
+    return topics
 
 def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
     data = pd.DataFrame(columns=['Document_Number', 'Subject', 'Status', 'Category', 'Topics', 'Title', 'Content', 'Approvals'])
@@ -33,7 +61,7 @@ def scrape_data(output_file = 'data/MeasureCorpus.csv', failure_list_file = ''):
                 subject = elements[0].get_text(strip=True) if len(elements) > 0 else None
                 status = elements[1].get_text(strip=True) if len(elements) > 1 else None
                 category = elements[2].get_text(strip=True) if len(elements) > 2 else None
-                topics = list(filter(lambda s: s is not None and s != '', [t.strip() for t in elements[3].get_text(strip=True).split('-')])) if len(elements) > 3 else None
+                topics = parse_topics(elements[3]) if len(elements) > 3 else None
                 content = content_div[1].get_text(strip=True) if len(content_div) > 1 else None
                 title = Title.get_text(strip=True) if Title else None
 

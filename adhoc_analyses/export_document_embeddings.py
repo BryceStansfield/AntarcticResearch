@@ -44,6 +44,7 @@ from embeddings.document_embeddings import (
     get_embeddings_by_uuid, get_wp_ip_embedding_args, get_representation_of_measure,
     measure_id_to_uuid,
 )
+from embeddings.bertopic_backend import mean_pool
 from embeddings.embed_all_documents import embed_document_set, CENSORED_WORKING_PAPER_TYPE
 from embeddings.working_paper_censorship import (
     get_working_paper_paths, censor_text, llm_censor_text_cached, author_for_stem,
@@ -108,13 +109,20 @@ def metadata_for_stem(lookup: dict[str, dict], stem: str) -> dict:
 # ------------------------------------------------------------------- vector plumbing
 
 def document_vector(uuids: list[str], cache: dict[str, list[float]]) -> np.ndarray | None:
-    """A document's vector: its single segment embedding, or the mean over segments for the few
-    documents long enough to be split. ``None`` if any segment is missing from the cache — a
-    partially-embedded document must not be exported as if it were whole."""
+    """A document's vector: its single segment embedding, or the pooled mean over segments for the
+    few documents long enough to be split. ``None`` if any segment is missing from the cache — a
+    partially-embedded document must not be exported as if it were whole.
+
+    Pools through ``mean_pool`` rather than a plain mean so the result is re-normalised. Segment
+    embeddings are unit-norm, so averaging them shrinks a multi-segment document toward the origin
+    in proportion to how much its segments disagree; exporting that unnormalised put the handful of
+    long papers systematically closer to the origin than everything else, which is invisible to a
+    cosine consumer but silently skews any scale-sensitive one (k-means, Euclidean k-NN, a linear
+    model). Sharing the helper with ``measure_wp_topics`` also stops the two drifting apart."""
     vectors = [cache.get(uuid) for uuid in uuids]
     if not vectors or any(v is None for v in vectors):
         return None
-    return np.asarray(vectors, dtype=np.float32).mean(axis=0)
+    return mean_pool(vectors)
 
 
 def in_space(vector: np.ndarray, space: str, projector: CountrySignalProjector) -> np.ndarray:

@@ -280,6 +280,56 @@ def test_migration_is_idempotent(db):
     assert _stored_types(db, "h1") == first
 
 
+# ------------------------------------------------------- building the database from scratch
+
+def test_from_scratch_build_gives_a_no_op_censored_paper_both_types(db, monkeypatch):
+    """`embed_all` embeds raw /wp/ text first, then the censored text in a later pass. When
+    censoring is a no-op the two passes produce the SAME uuid, and the row must end up carrying
+    both types -- this is the case that a single-valued column got wrong for 633 papers."""
+    calls = _stub_openai(monkeypatch, (0.5, 0.25))
+    raw = "A working paper with no target-country mention."
+    censored = raw  # censor_text is a no-op here
+
+    de.get_or_generate_embedding(*de.get_wp_ip_embedding_args(raw, "WorkingPaper")[0][:2],
+                                 raw)
+    de.get_or_generate_embedding(
+        *de.get_wp_ip_embedding_args(censored, "CensoredWorkingPaperV1")[0][:2], censored)
+
+    (uuid,) = {u for u, _ in de.get_embeddings_by_type("WorkingPaper")}
+    assert de.get_document_types(uuid) == ["CensoredWorkingPaperV1", "WorkingPaper"]
+    assert len(calls) == 1, "the second pass must be a cache hit, not a second paid call"
+
+
+def test_from_scratch_build_keeps_a_really_censored_paper_as_two_rows(db, monkeypatch):
+    """The contrasting case: censoring changed the text, so there are two distinct hashes and each
+    carries exactly one type."""
+    _stub_openai(monkeypatch, (0.5, 0.25))
+    raw = "Submitted by the United Kingdom."
+    censored = "Submitted by CountryName."
+
+    de.get_or_generate_embedding(*de.get_wp_ip_embedding_args(raw, "WorkingPaper")[0][:2], raw)
+    de.get_or_generate_embedding(
+        *de.get_wp_ip_embedding_args(censored, "CensoredWorkingPaperV1")[0][:2], censored)
+
+    assert [de.get_document_types(u) for u, _ in de.get_embeddings_by_type("WorkingPaper")] \
+        == [["WorkingPaper"]]
+    assert [de.get_document_types(u) for u, _ in de.get_embeddings_by_type("CensoredWorkingPaperV1")] \
+        == [["CensoredWorkingPaperV1"]]
+
+
+def test_a_later_experiment_type_attaches_to_an_existing_corpus_row(db, monkeypatch):
+    """Why WPAuthorClf::* is deliberately left out of the migration: running the benchmark after a
+    from-scratch corpus build attaches its types to the rows the corpus pass already embedded."""
+    _stub_openai(monkeypatch, (0.5,))
+    text = "An uncensored working paper."
+    de.get_or_generate_embedding(*de.get_wp_ip_embedding_args(text, "WorkingPaper")[0][:2], text)
+    de.get_or_generate_embedding(
+        *de.get_wp_ip_embedding_args(text, "WPAuthorClf::raw::full")[0][:2], text)
+
+    (uuid,) = {u for u, _ in de.get_embeddings_by_type("WorkingPaper")}
+    assert de.get_document_types(uuid) == ["WPAuthorClf::raw::full", "WorkingPaper"]
+
+
 def test_migration_ignores_expected_hashes_that_are_not_embedded_yet(db):
     """The censorship fix changed what censor_text emits, so many expected hashes have no row yet.
     Those must be skipped, not invented."""
