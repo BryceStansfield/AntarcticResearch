@@ -1,7 +1,7 @@
 """Tests for the shared punkt sentence splitter.
 
-`chunk_sentences` sets the unit of LLM censorship and of the semantic filter, so its
-grouping and its empty-chunk handling both affect cache keys downstream.
+`chunk_sentences` sets the unit of LLM censorship, so its grouping and its
+empty-chunk handling both affect cache keys downstream.
 """
 from sentence_splitter import chunk_sentences, split_sentences
 

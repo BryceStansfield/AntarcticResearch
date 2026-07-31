@@ -55,14 +55,14 @@ def component_importances(pipeline, X_val, Y_val) -> tuple[np.ndarray, str]:
     return result.importances_mean, "permutation importance"
 
 
-def load_dataset_segments(records: list[dict], method: str, granularity):
+def load_dataset_segments(records: list[dict], method: str):
     """Rebuild one dataset's units over `records`, as (X, Y, texts, stems).
 
     Goes through the classifier's own dataset_units/assemble_xy, so the segments are exactly the
     ones the dataset's PCA was fitted on — same censorship, same chunking, same hashes. ``texts``
     stays row-aligned with X because assemble_xy raises on a missing embedding rather than
     silently dropping the row."""
-    embed_units, hash_labels = cc.dataset_units(records, method, granularity)
+    embed_units, hash_labels = cc.dataset_units(records, method)
     by_hash = {h: text for h, _type, text in embed_units}
     X, Y, stems = cc.assemble_xy(hash_labels)
     texts = [by_hash[h] for h, _label, _stem in hash_labels]
@@ -97,11 +97,10 @@ def build_report() -> None:
         "",
     ]
 
-    for slug, censorship, granularity in cc.DATASETS:
-        # Which models exist for this dataset. Checked before any chunking, because rebuilding
-        # segments re-runs censorship and the semantic filter — expensive work to do for a dataset
-        # the benchmark has not trained yet (and assemble_xy would then raise on its missing
-        # embeddings anyway). SVM is legitimately absent on the per-sentence dataset.
+    for slug, censorship in cc.DATASETS:
+        # Which models exist for this dataset. Checked before rebuilding segments, because that
+        # re-runs censorship — expensive work to do for a dataset the benchmark has not trained
+        # yet (and assemble_xy would then raise on its missing embeddings anyway).
         trained = [n for n in cc.MODEL_NAMES
                    if (cc.OUTPUT_DIR / f"{cc.model_slug(n)}__{slug}.pickle").exists()]
         if not trained:
@@ -112,9 +111,9 @@ def build_report() -> None:
 
         print(f"Rebuilding segments for {slug}...")
         # Built once over train + val: the projection pool. The validation rows used for
-        # importances and loss are then masked out of it, rather than rebuilt — chunking re-runs
-        # censorship and the semantic filter, so doing it twice would be needless expense.
-        X_proj, Y_proj, texts, stems = load_dataset_segments(projection_records, censorship, granularity)
+        # importances and loss are then masked out of it, rather than rebuilt — rebuilding
+        # re-runs censorship, so doing it twice would be needless expense.
+        X_proj, Y_proj, texts, stems = load_dataset_segments(projection_records, censorship)
         val_mask = np.array([s in val_stems for s in stems])
         X_val, Y_val = X_proj[val_mask], Y_proj[val_mask]
 

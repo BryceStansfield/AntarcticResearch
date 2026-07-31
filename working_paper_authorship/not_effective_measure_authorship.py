@@ -3,7 +3,7 @@
 Takes the measures in ``data/Not-Effective measures.csv`` and scores each one with the working-paper
 authorship classifiers trained by ``country_authorship_classifier`` — specifically the models trained
 on *censored* documents (``naive__full`` and ``llm_censorship__full``). The measure text itself is
-**not** censored: we embed the raw ``Content`` once (whole-document, "full" granularity, same embedder
+**not** censored: we embed the raw ``Content`` once (whole-document, same embedder
 and hashing the WP pipeline uses) and feed those embeddings straight into the censored-trained models.
 This deliberately mirrors "train on censored WPs, predict on uncensored measures".
 
@@ -83,7 +83,7 @@ def load_measure_records() -> list[dict]:
 def embed_measures(records: list[dict]) -> list[tuple]:
     """Chunk each measure whole-document ("full", uncensored), embed any uncached segments, and
     return the (hash, label, stem) plan linking every embedded row back to its measure."""
-    embed_units, hash_labels = cc.dataset_units(records, method="raw", granularity="full")
+    embed_units, hash_labels = cc.dataset_units(records, method="raw")
     unique = {u[0]: u for u in embed_units}
     print(f"Embedding {len(unique)} unique measure segments (cached ones are skipped)...")
     embed_document_set(list(unique.values()))

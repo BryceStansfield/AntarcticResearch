@@ -31,11 +31,11 @@ from embeddings.embed_all_documents import embed_document_set
 
 PCA_DIMS = [2, 4, 8]
 # Whole-document datasets only: they have cached hyperparameters + embeddings, and the measure
-# pipeline is whole-document. (slug -> (censorship method, granularity).)
+# pipeline is whole-document. (slug -> censorship method.)
 DATASETS = {
-    "raw__full": ("raw", "full"),
-    "naive__full": ("naive", "full"),
-    "llm_censorship__full": ("llm_censorship", "full"),
+    "raw__full": "raw",
+    "naive__full": "naive",
+    "llm_censorship__full": "llm_censorship",
 }
 
 FULL_MODELS_DIR = cc.OUTPUT_DIR                                      # read-only: the production models
@@ -53,11 +53,11 @@ def make_lowdim(name: str, best_params: dict, n_components: int):
     return pipe
 
 
-def prepare_dataset(method: str, gran, train, val):
+def prepare_dataset(method: str, train, val):
     """Embed (cached ones skipped) and assemble (X, Y) for train and val of one dataset."""
     plan, unique = {}, {}
     for split_name, recs in (("train", train), ("val", val)):
-        units, hash_labels = cc.dataset_units(recs, method, gran)
+        units, hash_labels = cc.dataset_units(recs, method)
         for unit in units:
             unique.setdefault(unit[0], unit)
         plan[split_name] = hash_labels
@@ -116,9 +116,9 @@ def run() -> list[dict]:
     print(f"  measures: {len(measure_records)}")
 
     rows = []
-    for slug, (method, gran) in DATASETS.items():
+    for slug, method in DATASETS.items():
         print(f"\n=== dataset {slug} ===")
-        X_train, Y_train, X_val, Y_val = prepare_dataset(method, gran, train, val)
+        X_train, Y_train, X_val, Y_val = prepare_dataset(method, train, val)
         best_params = json.loads((FULL_MODELS_DIR / f"best_hyperparameters__{slug}.json").read_text())
         print(f"  train {X_train.shape}, val {X_val.shape}")
 

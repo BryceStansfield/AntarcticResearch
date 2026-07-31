@@ -1,5 +1,6 @@
 # Here we generate and cache document embeddings.
 import array
+import json
 import pathlib
 import sqlite3
 
@@ -33,6 +34,66 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+# --------------------------------------------------------------------------- document types
+#
+# ``document_type`` holds a JSON array of type strings, not one string. A document's uuid is the
+# sha256 of its text, so two pipelines that produce byte-identical text share a single row -- a
+# working paper whose censored form is unchanged is legitimately both "WorkingPaper" and
+# "CensoredWorkingPaperV1". Storing one type let whichever pipeline embedded the text first claim
+# the row, and every other type's enumeration silently missed it. Types therefore accumulate.
+
+# A stored cell is either the JSON array or, in a not-yet-migrated database, a bare scalar string.
+# This normalises both so json_each can read either, which keeps the module working mid-migration.
+_TYPES_AS_JSON = (
+    "CASE WHEN document_type LIKE '[%' THEN document_type ELSE json_array(document_type) END"
+)
+
+# Add one type to a row's array, in a single statement so concurrent writers (the embedding pool
+# runs 200 processes) can't lose a type to a read-modify-write race. UNION de-duplicates and
+# ORDER BY value keeps the encoding canonical, so equal type sets always compare equal.
+_MERGE_TYPE_SQL = f"""
+UPDATE embeddings
+   SET document_type = (SELECT json_group_array(value)
+                          FROM (SELECT value FROM json_each({_TYPES_AS_JSON})
+                                UNION SELECT ?
+                                ORDER BY value))
+ WHERE document_uuid=? AND model_uuid=?
+"""
+
+
+def parse_document_types(cell) -> list[str]:
+    """The list of types stored in a ``document_type`` cell, tolerating the pre-migration scalar."""
+    if not cell:
+        return []
+    if isinstance(cell, str) and cell.startswith("["):
+        try:
+            return [str(t) for t in json.loads(cell)]
+        except json.JSONDecodeError:
+            return [cell]
+    return [str(cell)]
+
+
+def get_document_types(document_uuid: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[str]:
+    """Every type recorded against this document, or [] if it has no embedding."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT document_type FROM embeddings WHERE document_uuid=? AND model_uuid=?",
+            (document_uuid, model_uuid),
+        ).fetchone()
+    return parse_document_types(row[0]) if row else []
+
+
+def add_document_type(document_uuid: str, document_type: str,
+                      model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> bool:
+    """Record that ``document_type`` also applies to an already-embedded document.
+
+    Returns True if the row exists (whether or not the type was new), False if there is nothing to
+    tag. Safe to call repeatedly."""
+    with get_connection() as conn:
+        cur = conn.execute(_MERGE_TYPE_SQL, (document_type, document_uuid, model_uuid))
+    return cur.rowcount > 0
+
+
 def has_embedding(document_uuid: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> bool:
     with get_connection() as conn:
         row = conn.execute(
@@ -57,6 +118,11 @@ def get_embedding(document_uuid: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL)
 def get_or_generate_embedding(document_uuid: str, document_type: str, text: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[float]:
     cached = get_embedding(document_uuid, model_uuid)
     if cached is not None:
+        # Record the type even on a cache hit. This call asserts that `document_type` applies to
+        # this text; if another pipeline embedded the identical text first, that assertion is the
+        # only place the second type is ever learned, and dropping it is what made whole corpora
+        # unenumerable (only 469 of 2420 censored papers were reachable by their own type).
+        add_document_type(document_uuid, document_type, model_uuid)
         return cached
     return generate_embedding(document_uuid, document_type, text, model_uuid)
 
@@ -70,18 +136,31 @@ def generate_embedding(document_uuid: str, document_type: str, text: str, model_
     vector = response.data[0].embedding
 
     with get_connection() as conn:
+        # OR IGNORE then merge, rather than OR REPLACE: if a concurrent worker already stored this
+        # text we keep its vector and only contribute our type, so a race can add a type but never
+        # drop one and never overwrites an embedding.
         conn.execute(
-            "INSERT OR REPLACE INTO embeddings (document_uuid, model_uuid, document_type, embedding) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO embeddings (document_uuid, model_uuid, document_type, embedding) "
+            "VALUES (?, ?, json_array(?), ?)",
             (document_uuid, model_uuid, document_type, array.array('f', vector).tobytes()),
         )
+        conn.execute(_MERGE_TYPE_SQL, (document_type, document_uuid, model_uuid))
 
     return vector
 
 def get_embeddings_by_type(document_type: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[tuple[str, list[float]]]:
+    """Every embedding whose type array contains ``document_type``, ordered by uuid.
+
+    The ORDER BY is load-bearing: without it SQLite returns rows in scan order, which is insert
+    history and is free to change after a VACUUM or a rebuild. That order propagates into
+    UMAP/HDBSCAN input ordering and silently shifts topic ids, with no seed to blame."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT document_uuid, embedding FROM embeddings WHERE document_type=? AND model_uuid=?",
-            (document_type, model_uuid),
+            f"SELECT document_uuid, embedding FROM embeddings "
+            f"WHERE model_uuid=? AND EXISTS "
+            f"  (SELECT 1 FROM json_each({_TYPES_AS_JSON}) WHERE value=?) "
+            f"ORDER BY document_uuid",
+            (model_uuid, document_type),
         ).fetchall()
     return [
         (document_uuid, array.array('f', embedding).tolist())
@@ -111,7 +190,7 @@ def get_embeddings_by_uuid(document_uuids, model_uuid: str = DEFAULT_EMBEDDING_M
 def get_all_embeddings(model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> list[tuple[str, list[float]]]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT document_uuid, embedding FROM embeddings WHERE model_uuid=?",
+            "SELECT document_uuid, embedding FROM embeddings WHERE model_uuid=? ORDER BY document_uuid",
             (model_uuid,),
         ).fetchall()
     return [
@@ -161,7 +240,7 @@ def get_wp_ip_embedding_args(document_text: str, t):
 class EmbeddingLookerUpper():
     def __init__(self, document_type: str | None, model_uuid: str = DEFAULT_EMBEDDING_MODEL):
         if isinstance(document_type, str):
-            self.embeddings = get_embeddings_by_type(document_type,)
+            self.embeddings = get_embeddings_by_type(document_type, model_uuid)
         else:
             self.embeddings = get_all_embeddings(model_uuid)
         

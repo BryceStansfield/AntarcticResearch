@@ -1,11 +1,8 @@
-"""Working-paper authorship benchmark over two document representations.
+"""Working-paper authorship benchmark over whole-document representations.
 
 Fetches working papers and their authors, splits deterministically at the document level,
-then builds and embeds two representations:
-  1) whole documents, under every censorship method (raw / naive / LLM);
-  2) the importance-"keep" sentences of the LLM-censored documents (fluff dropped by the
-     semantic filter), one row per kept sentence.
-The classifier suite is trained on each. Hyperparameters are searched *separately* for every
+then builds and embeds one whole-document representation per censorship method (raw / naive /
+LLM). The classifier suite is trained on each. Hyperparameters are searched *separately* for every
 dataset (no shared search). Models, per-dataset hyperparameters and a validation report are
 written to data/author_classification_models/, and a per-(model, dataset) CSV of held-out test
 set predictions to data/test_set_predictions/.
@@ -37,9 +34,7 @@ from xgboost import XGBClassifier
 
 from utils import split_parties
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
-from sentence_splitter import chunk_sentences, split_sentences
 from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text, author_for_stem
-from embeddings.working_paper_semantic_filter import get_or_classify
 from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding, has_embedding
 from embeddings.embed_all_documents import embed_document_set
 from working_paper_authorship.country_signal_projection import CountrySignalProjector
@@ -53,7 +48,7 @@ OPTUNA_RANDOM_STATE = 1234
 CV_FOLDS = 3
 N_OPTUNA_TRIALS = 32
 # Parallel candidates/trials per search. Set to 1 on purpose: one candidate already saturates the
-# machine — its PCA SVD streams the full 16k x 4096 keep-sentence matrix (memory-bandwidth bound)
+# machine — its PCA SVD streams the whole n x 4096 document matrix (memory-bandwidth bound)
 # and, with the estimators at n_jobs=-1, uses all cores. Fitting candidates one at a time (each
 # using the whole machine) avoids the cross-candidate memory-bandwidth contention, peak-RAM spikes,
 # and joblib memmap/IPC overhead that n_jobs=-1 caused here. Estimators parallelise internally.
@@ -62,16 +57,12 @@ SEARCH_N_JOBS = 1
 COUNTRIES = ["Australia", "United Kingdom", "United States", "Norway", "Chile"]
 MODEL_NAMES = ["Logistic Regression", "Random Forest", "XGBoost", "SVM"]
 
-# The datasets we benchmark, each (slug, censorship method, granularity):
-#   1) whole documents, under every censorship method ("full" granularity);
-#   2) the importance-"keep" sentences of the LLM-censored documents (one row per kept
-#      sentence, fluff dropped by the semantic filter).
-# Hyperparameters are searched separately for each dataset.
+# The datasets we benchmark, each (slug, censorship method): whole documents under every
+# censorship method. Hyperparameters are searched separately for each dataset.
 DATASETS = [
-    ("raw__full",            "raw",            "full"),
-    ("naive__full",          "naive",          "full"),
-    ("llm_censorship__full", "llm_censorship", "full"),
-    ("llm_keep_sentences",   "llm_censorship", "keep_sentences"),
+    ("raw__full",            "raw"),
+    ("naive__full",          "naive"),
+    ("llm_censorship__full", "llm_censorship"),
 ]
 
 DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
@@ -84,10 +75,9 @@ ORTHOGONAL_OUTPUT_DIR = pathlib.Path("data/author_classification_models_orthogon
 ORTHOGONAL_PREDICTIONS_DIR = pathlib.Path("data/test_set_predictions_orthogonal")
 _PROJECTOR = None  # set by run_benchmark when orthogonalizing; assemble_xy applies it to every X
 N_FEATURES = 4096
-# Cap on PCA components searched. Beyond this a full-SVD PCA on the large per-sentence dataset
-# (~16k rows) blows up memory under parallel CV, and >512 components rarely helps; capping here
-# also keeps the search space consistent across datasets (the whole-doc sets already topped out
-# at 512 via the fold-size limit below).
+# Cap on PCA components searched. >512 components rarely helps, and capping here keeps the search
+# space consistent across datasets (the whole-doc sets already topped out at 512 via the fold-size
+# limit below).
 MAX_PCA_COMPONENTS = 512
 
 _alias_to_canonical = CaseInsensitiveDict()
@@ -253,32 +243,6 @@ def split_documents(records: list[dict]):
     return train, val, test
 
 
-def granularity_label(granularity) -> str:
-    if granularity in ("full", "keep_sentences"):
-        return granularity
-    return f"chunk{granularity}"
-
-
-def _chunk_units(text: str, granularity, type_str: str) -> list[tuple]:
-    """(hash, type, chunk_text) units for one document at the given granularity. "full" uses the
-    whole text; "keep_sentences" splits into sentences and keeps only those the semantic filter
-    labels important (one unit per kept sentence); an int groups that many sentences per chunk.
-    Either way each chunk is passed through get_wp_ip_embedding_args, which re-splits anything over
-    the embedder's context window — a safety net in case the sentence tokenizer ever emits a
-    >32k-token "sentence"."""
-    if granularity == "full":
-        chunks = [text]
-    elif granularity == "keep_sentences":
-        chunks = [s for raw in split_sentences(text) if (s := raw.strip()) and get_or_classify(s)]
-    else:
-        chunks = chunk_sentences(text, granularity)
-    units = []
-    for chunk in chunks:
-        if chunk:
-            units.extend((h, type_str, seg) for (h, _t, seg) in get_wp_ip_embedding_args(chunk, type_str))
-    return units
-
-
 def _apply_censorship(record: dict, method: str) -> str:
     text = record["text"]
     if method == "raw":
@@ -290,18 +254,21 @@ def _apply_censorship(record: dict, method: str) -> str:
     raise ValueError(f"Unknown censorship method: {method}")
 
 
-def dataset_units(records: list[dict], method: str, granularity):
-    """Return (embed_units, hash_labels) for one (censorship method, granularity) dataset.
+def dataset_units(records: list[dict], method: str):
+    """Return (embed_units, hash_labels) for one censorship method's whole-document dataset.
 
     embed_units: list of (hash, type, text) to feed the embedder.
-    hash_labels: list of (hash, label, stem) preserving the chunk -> document link (its label and
-    which working paper it came from)."""
-    type_str = f"WPAuthorClf::{method}::{granularity_label(granularity)}"
+    hash_labels: list of (hash, label, stem) preserving the fragment -> document link (its label
+    and which working paper it came from).
+
+    One unit per document, except that get_wp_ip_embedding_args re-splits anything over the
+    embedder's context window, so a handful of very long papers contribute more than one row."""
+    type_str = f"WPAuthorClf::{method}::full"
     embed_units, hash_labels = [], []
     for rec in records:
         text = _apply_censorship(rec, method)
-        for h, t, chunk in _chunk_units(text, granularity, type_str):
-            embed_units.append((h, t, chunk))
+        for h, t, segment in get_wp_ip_embedding_args(text, type_str):
+            embed_units.append((h, t, segment))
             hash_labels.append((h, rec["label"], rec["stem"]))
     return embed_units, hash_labels
 
@@ -343,11 +310,6 @@ def random_guess_baseline(val_records: list[dict]) -> tuple[float, list[float]]:
     proba = np.tile(base_rates, (len(labels), 1))
     per_class = [float(log_loss(labels[:, i], proba[:, i], labels=[0, 1])) for i in range(len(COUNTRIES))]
     return float(np.mean(per_class)), per_class
-
-
-def _svm_allowed(granularity) -> bool:
-    """SVM is O(n^2)-ish — only run it on the whole-document sets, not the per-sentence one."""
-    return granularity == "full"
 
 
 def model_slug(name: str) -> str:
@@ -413,7 +375,7 @@ def run_final_test_evaluation(results: list[dict], plans: dict, val_records: lis
             by_dataset[r["dataset"]] = r
 
     final_results = []
-    for slug, _method, _gran in DATASETS:
+    for slug, _method in DATASETS:
         winner = by_dataset.get(slug)
         if winner is None:
             continue
@@ -448,7 +410,7 @@ def run_final_test_evaluation(results: list[dict], plans: dict, val_records: lis
 
 def write_final_test_report(results: list[dict], baseline_avg: float, baseline_per_class: list[float]) -> None:
     baseline_cols = " ".join(f"{b:.2f}" for b in baseline_per_class)
-    dataset_order = {slug: i for i, (slug, _, _) in enumerate(DATASETS)}
+    dataset_order = {slug: i for i, (slug, _) in enumerate(DATASETS)}
     lines = ["WORKING PAPER AUTHORSHIP — FINAL HELD-OUT TEST EVALUATION",
              f"Countries: {', '.join(COUNTRIES)}",
              "Per dataset: the model with the best validation cross-entropy, refit on train+val",
@@ -486,7 +448,7 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         # Reuse the baseline (full-space) hyperparameters instead of re-searching, so the only thing that
         # changes between baseline and this run is the feature space — a clean A/B. Copy them across once.
-        for slug, _m, _g in DATASETS:
+        for slug, _m in DATASETS:
             src = baseline_dir / f"best_hyperparameters__{slug}.json"
             dst = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
             if src.exists() and not dst.exists():
@@ -502,9 +464,9 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
     print("Chunking + collecting embedding work...")
     unique_units: dict[str, tuple] = {}
     plans: dict[tuple, list] = {}
-    for slug, method, gran in DATASETS:
+    for slug, method in DATASETS:
         for split_name, recs in (("train", train), ("val", val), ("test", test)):
-            embed_units, hash_labels = dataset_units(recs, method, gran)
+            embed_units, hash_labels = dataset_units(recs, method)
             for unit in embed_units:
                 unique_units.setdefault(unit[0], unit)
             plans[(slug, split_name)] = hash_labels
@@ -524,7 +486,7 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
     # then fit + persist each model with those params. Validation statistics are recomputed
     # either way. Saved models are reused as-is on rerun.
     results = []
-    for slug, method, gran in DATASETS:
+    for slug, method in DATASETS:
         X_train, Y_train, _ = assemble_xy(plans[(slug, "train")])
         X_val, Y_val, _ = assemble_xy(plans[(slug, "val")])
         X_test, Y_test, test_stems = assemble_xy(plans[(slug, "test")])
@@ -539,8 +501,6 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
             print(f"  searching hyperparameters (n_train={len(X_train)}, pca_dims={pca_dims})...")
             best_params = {}
             for name in MODEL_NAMES:
-                if name == "SVM" and not _svm_allowed(gran):
-                    continue
                 print(f"    searching {name}...")
                 search = make_search(name, pca_dims)
                 search.fit(X_train, Y_train)
@@ -548,8 +508,6 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
             hp_path.write_text(json.dumps(best_params, indent=2))
 
         for name in MODEL_NAMES:
-            if name == "SVM" and not _svm_allowed(gran):
-                continue
             pickle_path = OUTPUT_DIR / f"{model_slug(name)}__{slug}.pickle"
             if pickle_path.exists():
                 with open(pickle_path, "rb") as f:
@@ -587,7 +545,7 @@ def pca_search_dims(n_train: int, n_features: int) -> list[int]:
 
 def write_report(results: list[dict], baseline_avg: float, baseline_per_class: list[float]) -> None:
     baseline_cols = " ".join(f"{b:.2f}" for b in baseline_per_class)
-    dataset_order = {slug: i for i, (slug, _, _) in enumerate(DATASETS)}
+    dataset_order = {slug: i for i, (slug, _) in enumerate(DATASETS)}
     lines = ["WORKING PAPER AUTHORSHIP — WHOLE-DOC vs KEEP-SENTENCE BENCHMARK",
              f"Countries: {', '.join(COUNTRIES)}",
              "Metrics on the validation set (cross-entropy lower is better).",

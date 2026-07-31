@@ -25,8 +25,21 @@ from sentence_splitter import chunk_sentences
 # Working-paper filenames end in a language code (_e, _s, _f, _r); the suite is English.
 ENGLISH_SUFFIX = "_e"
 DOCUMENT_SUMMARY_PATH = "data/antarctic-db/processed/document-summary.parquet"
-# Default countries to censor — the authorship targets.
-COUNTRIES = ["Australia", "Australian", "the United Kingdom", "United Kingdom", "the UK", "British", "the USA", "the US", "United States", "American", "Norway", "Norwegian", "Chile", "Chilean"]
+# Default countries to censor — the authorship targets. Bare acronyms ("UK", "US", "USA")
+# and their punctuated forms are listed alongside the articled variants: the articled forms
+# alone ("the UK") left every bare mention uncensored, which biased the UK and US arms
+# specifically — those two are the only targets with a common acronym.
+COUNTRIES = ["Australia", "Australian", "Australians",
+             "the United Kingdom", "United Kingdom", "the UK", "UK", "U.K.",
+             "British", "Britain", "England", "Britons",
+             "the USA", "the US", "USA", "U.S.A.", "U.S.", "US",
+             "United States", "American", "Americans",
+             "Norway", "Norwegian", "Norwegians",
+             "Chile", "Chilean", "Chileans"]
+# Names matched caps-only, because a case-insensitive match would swallow an ordinary English
+# word ("US" the country vs "us" the pronoun). Everything else stays case-insensitive so that
+# sentence-initial and ALL-CAPS heading forms still match.
+CASE_SENSITIVE_COUNTRIES = ["US"]
 PLACEHOLDER = "CountryName"
 
 
@@ -75,13 +88,37 @@ def author_for_stem(stem: str) -> str | None:
 
 
 def _censor_pattern(countries: list[str]) -> re.Pattern:
-    """Whole-phrase, case-insensitive matcher for the supplied country names, tolerant of
-    OCR whitespace / line breaks. Longest names first so multi-word names take precedence."""
-    bodies = [
-        r"\s+".join(re.escape(word) for word in country.split())
-        for country in sorted(countries, key=len, reverse=True)
-    ]
-    return re.compile(r"\b(?:" + "|".join(bodies) + r")\b", re.IGNORECASE)
+    """Whole-phrase matcher for the supplied country names, tolerant of OCR whitespace / line
+    breaks. Longest names first so multi-word names take precedence.
+
+    Boundaries are ``(?<!\\w)``/``(?!\\w)`` rather than ``\\b``. A trailing ``\\b`` after a phrase
+    that ends in punctuation requires a *word* character to follow, so "U.S.", "U.K." and
+    "... (SCAR)" could never match themselves and the country they name survived censorship.
+    The lookarounds only require that the match not be glued to a longer word, which is the
+    actual intent and also lets "(UK)" match.
+
+    Names in ``CASE_SENSITIVE_COUNTRIES`` are matched caps-only so "US" is censored but the
+    pronoun "us" is not; they alternate last, after the longer case-insensitive bodies, so
+    "USA" still wins over "US".
+    """
+    def bodies(names: list[str]) -> list[str]:
+        return [
+            r"\s+".join(re.escape(word) for word in name.split())
+            for name in sorted(names, key=len, reverse=True)
+        ]
+
+    insensitive = [c for c in countries if c not in CASE_SENSITIVE_COUNTRIES]
+    sensitive = [c for c in countries if c in CASE_SENSITIVE_COUNTRIES]
+
+    alternatives = []
+    if insensitive:
+        alternatives.append("(?i:" + "|".join(bodies(insensitive)) + ")")
+    if sensitive:
+        alternatives.append("|".join(bodies(sensitive)))
+    if not alternatives:
+        # A bare "(?:)" would match the empty string at every position and blank the document.
+        return re.compile(r"(?!)")
+    return re.compile(r"(?<!\w)(?:" + "|".join(alternatives) + r")(?!\w)")
 
 
 def censor_text(text: str, countries: list[str] = COUNTRIES) -> str:

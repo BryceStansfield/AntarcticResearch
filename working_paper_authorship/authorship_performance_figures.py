@@ -33,7 +33,6 @@ DATASET_LABELS = {
     "raw__full": "raw",
     "naive__full": "naive censorship",
     "llm_censorship__full": "LLM censorship",
-    "llm_keep_sentences": "LLM keep-sentences",
 }
 # Categorical hues, assigned per dataset in fixed order and shared across all three figures so a
 # method keeps its colour from one chart to the next. Orthogonal runs reuse the dataset's hue and
@@ -42,12 +41,11 @@ DATASET_COLORS = {
     "raw__full": "#2a78d6",
     "naive__full": "#eb6834",
     "llm_censorship__full": "#1baf7a",
-    "llm_keep_sentences": "#eda100",
 }
 BASELINE_COLOR = "#8a8a85"
 ORTHOGONAL_HATCH = "///"
 
-CENSORSHIP_DATASETS = ["naive__full", "llm_censorship__full", "llm_keep_sentences"]
+CENSORSHIP_DATASETS = ["naive__full", "llm_censorship__full"]
 ALL_DATASETS = ["raw__full", *CENSORSHIP_DATASETS]
 
 # The report is fixed-width; anchor on the known model names so the two-word ones parse cleanly.

@@ -43,10 +43,13 @@ def aggregate_all_figures():
     full_figure_dir = pathlib.Path("data") / "full_figures"
     full_figure_dir.mkdir(parents=True, exist_ok=True)
     for f in figures:
-        try:
-            f.save_full_figures(full_figure_dir / (f.figure_title() + ".csv"))
-        except:
-            pass
+        # FacilityFigures and VesselCrewFigures have no yearly breakdown to save, so they
+        # legitimately define no save_full_figures. Skip exactly those; a figure that has the
+        # method and then fails must raise, rather than silently leaving the previous run's
+        # CSV on disk next to a freshly-written ladder_results.csv.
+        if not hasattr(f, "save_full_figures"):
+            continue
+        f.save_full_figures(full_figure_dir / (f.figure_title() + ".csv"))
 
     collaboration_centrality.save_collaboration_graphs(pathlib.Path("data") / "collaboration_graphs")
     return results
