@@ -17,6 +17,10 @@ EMBEDDINGS_DB_PATH = pathlib.Path("data/document_embeddings.sqlite3")
 DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
 HUGGINGFACE_MODEL_NAME = "Qwen/Qwen3-Embedding-8B"
 CONTEXT_WINDOW_LIMIT = 32000
+# A second, independent ceiling. The endpoint rejects any input of 131072 characters or more with a
+# 422 ("The input sequence should have less than 131072 characters"), regardless of how few tokens
+# those characters encode to. Splitting to fit the token budget alone is therefore not sufficient.
+MAX_INPUT_CHARACTERS = 131072
 
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(EMBEDDINGS_DB_PATH)
@@ -216,25 +220,58 @@ def token_sequence_to_string(tokens) -> str:
     return tokenizer.decode(tokens)
 
 def split_long_document(document_text):
-    # This split is based off the rule of thumb that one token \approx 3-4 chars. It works in this context but
+    """Split a document into segments that fit BOTH the token budget and the character cap.
+
+    Two independent limits apply, and satisfying one does not imply the other. Fitting only the
+    token budget is what sent a 132806-character segment (of ATCM25_ip102_e) to the endpoint and
+    got a 422: it was 31941 tokens, comfortably inside the 32000-token window, but at 4.16
+    characters per token it blew past MAX_INPUT_CHARACTERS. Dense documents encode more characters
+    per token than the 3-4 rule of thumb below assumes, so the character bound has to be enforced
+    on its own rather than inferred from the token count."""
+    # This early return is based off the rule of thumb that one token \approx 3-4 chars. It works in this context but
     # technically it isn't correct. A document consisting of 100k 𰻝's would almost certainly be more than 32k tokens (the Qwen limit).
     # We ignore this for speed, since tokenizing everything would be a masssive pain.
+    # It is safe for the character cap too, since CONTEXT_WINDOW_LIMIT * 3 < MAX_INPUT_CHARACTERS.
     if len(document_text) < CONTEXT_WINDOW_LIMIT * 3:
         return [document_text]
-    
-    tokens = get_tokenized_string(document_text)
-    segments = math.ceil(len(tokens)/CONTEXT_WINDOW_LIMIT)
-    tokens_per_segment = math.ceil(len(tokens)/segments)
 
-    return [token_sequence_to_string(tokens[i*tokens_per_segment: (i+1)*tokens_per_segment]) for i in range(segments)]
+    tokens = get_tokenized_string(document_text)
+    segments = max(
+        math.ceil(len(tokens) / CONTEXT_WINDOW_LIMIT),
+        math.ceil(len(document_text) / MAX_INPUT_CHARACTERS),
+    )
+
+    # Splitting the token stream into equal parts does not divide the characters equally -- token
+    # density varies within a document, so one part can still land over the cap while the rest fit.
+    # Rather than predict that, cut again until every part actually fits. In practice this loop runs
+    # at most once or twice, and it terminates because a part can never hold more tokens than the
+    # whole document does.
+    while segments < len(tokens):
+        tokens_per_segment = math.ceil(len(tokens) / segments)
+        pieces = [
+            token_sequence_to_string(tokens[i * tokens_per_segment: (i + 1) * tokens_per_segment])
+            for i in range(segments)
+        ]
+        if all(len(piece) < MAX_INPUT_CHARACTERS for piece in pieces):
+            return pieces
+        segments += 1
+
+    return [token_sequence_to_string([token]) for token in tokens]
 
 def get_wp_ip_embedding_args(document_text: str, t):
     document_segments = split_long_document(document_text)
 
     ret_arr = []
-    for _, segment in enumerate(document_segments):
+    for segment in document_segments:
+        # Skip documents with no text. The endpoint rejects an empty input outright ("Too small:
+        # expected string to have >=1 characters"), which is a 400 and so fails every retry, taking
+        # the whole run down with it. An empty document has no embedding worth caching in any case.
+        # This is not hypothetical: ATCM2_wp010_e.txt is a zero-byte OCR result, and censoring can
+        # in principle strip a short enough document down to nothing.
+        if not segment.strip():
+            continue
         ret_arr.append((hashlib.sha256(segment.encode()).hexdigest(), t, segment,))
-    
+
     return ret_arr
 
 class EmbeddingLookerUpper():
