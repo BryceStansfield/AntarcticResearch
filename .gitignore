@@ -30,3 +30,5 @@ data/antarctic-db.zip
 # Bipartite matching graphs are large multi-MB renders; regenerate via
 # latency_analyses.bipartite_matching_graphs. The summary CSV stays trackable.
 data/latencies/bipartite_graphs/*.png
+
+data/topic_prior_authorship/
