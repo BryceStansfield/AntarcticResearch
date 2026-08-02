@@ -23,7 +23,6 @@ Outputs (to ``adhoc_analyses/output/``):
 """
 
 import argparse
-import collections
 import pathlib
 
 import numpy as np
@@ -31,7 +30,7 @@ import pandas as pd
 from bertopic import BERTopic
 
 import embeddings.document_embeddings as document_embeddings
-from embeddings.bertopic_backend import bertopic_umap, mean_pool, topic_vectorizer
+from embeddings.bertopic_backend import bertopic_umap, topic_vectorizer
 from working_paper_authorship.country_signal_projection import CountrySignalProjector
 
 OUTPUT_DIR = pathlib.Path("adhoc_analyses/output")
@@ -84,44 +83,36 @@ def load_measures() -> list[dict]:
 def load_working_papers() -> list[dict]:
     """Every embedded English Working Paper, one row per paper (not per segment).
 
-    Long papers are embedded as several segments keyed on sha256(segment), all
-    of which map back to the same source file. Those are collapsed to a single
-    document with the mean of its segment embeddings.
+    The grouping and pooling that turns per-segment embedding rows back into
+    per-document vectors lives in ``DocumentTextGetter.get_all_of_type`` -- it is
+    needed by every consumer of the WorkingPaper type, not just this one, and
+    keeping a private copy here is what let the other consumers drift into
+    counting segments as documents. This only reshapes its output into the
+    document dicts the rest of this module (and ``measure_wp_latency``) expects.
+
+    Papers with no matching row in document-summary.parquet come back with only
+    "text" -- no language, so they can't be language-filtered and are dropped.
     """
-    getter = document_embeddings.DocumentTextGetter()
-
-    by_file: dict[str, list] = collections.defaultdict(list)
-    for uuid, embedding in document_embeddings.get_embeddings_by_type("WorkingPaper"):
-        by_file[getter.wp_ip_map[uuid]].append((uuid, embedding))
-
     docs = []
-    for path, segments in by_file.items():
-        # Every segment of a file resolves to the same representation (the
-        # representation reads the whole file), so the first uuid is enough.
-        representation = getter.get_wp_ip_representation(segments[0][0])
-        # Papers with no matching row in document-summary.parquet come back with
-        # only "text" — no language, so they can't be language-filtered and are
-        # dropped, matching topic_introduction.py.
-        if str(representation.get("paper_language", "")).lower() != "english":
+    for d in document_embeddings.DocumentTextGetter().get_all_of_type(
+        "WorkingPaper", with_embeddings=True
+    ):
+        if str(d.get("paper_language", "")).lower() != "english":
             continue
-
-        # Same pooling rule the embedding backend uses, so a document's vector
-        # is identical whether it comes from here or from OpenRouterBackend.
-        mean_embedding = mean_pool([e for _, e in segments])
         docs.append(
             {
-                "uuid": segments[0][0],
+                "uuid": d["uuid"],
                 "doc_class": "WorkingPaper",
                 "instrument_type": "WorkingPaper",
-                "text": representation["text"],
-                "year": representation["year"],
+                "text": d["text"],
+                "year": d["year"],
                 "adoption_year": None,
-                "embedding": mean_embedding,
-                "label": pathlib.Path(path).stem,
-                "n_segments": len(segments),
+                "embedding": d["embedding"],
+                "label": pathlib.Path(d["source"]).stem,
+                "n_segments": d["n_segments"],
                 # Unused here; measure_wp_latency.py needs it to skip papers
                 # authored only by non-party bodies when matching.
-                "parties": representation.get("parties", []),
+                "parties": d.get("parties", []),
             }
         )
     return docs
@@ -289,5 +280,8 @@ def main():
     print(f"\nWritten to {OUTPUT_DIR}/")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

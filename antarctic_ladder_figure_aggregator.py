@@ -54,5 +54,8 @@ def aggregate_all_figures():
     collaboration_centrality.save_collaboration_graphs(pathlib.Path("data") / "collaboration_graphs")
     return results
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     print(aggregate_all_figures())

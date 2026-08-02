@@ -1,10 +1,15 @@
 """Where do the not-yet-effective measures sit in the Qwen embedding space, relative to WPs?
 
 Motivated by the failure of the working-paper authorship classifiers to predict measure authorship
-(see ``working_paper_authorship/not_effective_measure_authorship.py``): is that failure because the
-measures land in an unseen region of the embedding space (an OOD-coverage problem), or because they
-sit *inside* the working-paper manifold and the failure is purely about the authorship signal (a
-decision-boundary problem)?
+— every model scored far worse than its no-skill baseline (BCE 1.46-2.01 against a 0.30 base-rate
+floor), and a topic-conditioned prior over subject matter alone did no better (AUC 0.41, p = 0.39).
+Is that failure because the measures land in an unseen region of the embedding space (an
+OOD-coverage problem), or because they sit *inside* the working-paper manifold and the failure is
+purely about the authorship signal (a decision-boundary problem)?
+
+The two modules that produced those numbers (``not_effective_measure_authorship.py`` and
+``topic_prior_authorship.py``) have since been deleted — the negative result held up and there was
+no reason to keep re-running them.
 
 To tell those apart we compare three cosine-distance distributions over whole-document raw
 embeddings (same Qwen embedder for both classes):
@@ -34,7 +39,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from embeddings.document_embeddings import (
-    get_embeddings_by_type, get_embedding, get_wp_ip_embedding_args,
+    DocumentTextGetter, get_embedding, get_wp_ip_embedding_args,
 )
 
 OUTPUT_DIR = pathlib.Path("adhoc_analyses/output")
@@ -49,9 +54,19 @@ def unit_rows(mat: np.ndarray) -> np.ndarray:
 
 
 def load_wp_vectors() -> np.ndarray:
-    """Cached whole-document raw working-paper embeddings, unit-normalised."""
-    pairs = get_embeddings_by_type(WP_EMBEDDING_TYPE)
-    return unit_rows(np.asarray([v for _, v in pairs], dtype=np.float64))
+    """Cached whole-document raw working-paper embeddings, unit-normalised.
+
+    One vector per paper. Enumerating the embedding rows directly gives one per *segment*, so the
+    handful of papers long enough to be split entered every distribution below several times over
+    -- and, being segments, entered them as partial documents rather than the whole-document
+    vectors this comparison is about. ``get_all_of_type`` pools a paper's segments back into the
+    single vector the classifier would see.
+
+    English only, matching the corpus every other analysis here runs on.
+    """
+    documents = DocumentTextGetter().get_all_of_type(WP_EMBEDDING_TYPE, with_embeddings=True)
+    english = [d for d in documents if str(d.get("paper_language", "")).lower() == "english"]
+    return unit_rows(np.asarray([d["embedding"] for d in english], dtype=np.float64))
 
 
 def load_measure_vectors() -> np.ndarray:
@@ -140,8 +155,15 @@ def build_report(rows: list[tuple[str, dict]], nn: np.ndarray, within_wp_mean: f
 
 def plot_histograms(dists: dict[str, np.ndarray], path: pathlib.Path) -> None:
     plt.figure(figsize=(8, 5))
+    # Range taken from the data rather than hardcoded to (0, 1). Cosine distance runs to 2, and
+    # nothing here guarantees non-negative similarity -- a hardcoded range silently drops any pair
+    # outside it, and dropping the very pairs that would show measures sitting *opposite* the
+    # working-paper manifold would quietly flatter the conclusion this figure is drawn to test.
+    # A shared range across the three series is what keeps them comparable.
+    lo = min(float(d.min()) for d in dists.values())
+    hi = max(float(d.max()) for d in dists.values())
     for name, d in dists.items():
-        plt.hist(d, bins=60, range=(0, 1), density=True, histtype="step", linewidth=1.6, label=name.strip())
+        plt.hist(d, bins=60, range=(lo, hi), density=True, histtype="step", linewidth=1.6, label=name.strip())
     plt.xlabel("cosine distance (1 - cosine similarity)")
     plt.ylabel("density")
     plt.title("Measure vs Working-Paper embedding geometry")
@@ -185,5 +207,8 @@ def main() -> None:
     print(f"\nWrote:\n  {report_path}\n  {summary_path}\n  {hist_path}")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

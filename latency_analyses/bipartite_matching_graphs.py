@@ -58,7 +58,8 @@ from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
 from adhoc_analyses.measure_wp_topics import load_measures, load_working_papers
-from latency_analyses.measure_wp_latency import OUTPUT_DIR, _has_real_party
+from latency_analyses.measure_wp_latency import (OUTPUT_DIR, _has_real_party,
+                                                 argmax_tiebroken, label_order)
 
 # Step 0.05, endpoints as requested. A constant so the family is easy to widen.
 THRESHOLDS = [0.75, 0.80, 0.85, 0.90]
@@ -107,15 +108,18 @@ def load_sides():
     return instr, wp
 
 
-def edges_for_policy(sims, instr_years, wp_years, *, threshold=None,
+def edges_for_policy(sims, instr_years, wp_years, *, wp_order=None, threshold=None,
                      backward=False, closest=False):
     """(instrument_index, wp_index) pairs a policy would draw.
 
     ``closest`` ignores ``threshold``/``backward`` and joins each instrument to
-    its single nearest paper.
+    its single nearest paper; ``wp_order`` breaks ties there by label rather than
+    by column position (see ``measure_wp_latency.label_order``).
     """
     if closest:
-        nearest = sims.argmax(axis=1)
+        if wp_order is None:
+            wp_order = np.arange(sims.shape[1])
+        nearest = argmax_tiebroken(sims, wp_order)
         return np.column_stack([np.arange(len(instr_years)), nearest])
 
     mask = sims >= threshold
@@ -281,7 +285,8 @@ def main():
             print(f"  {name:<28}{summary['n_edges']:>7}{summary['n_instruments_matched']:>7}"
                   f"{summary['n_wps_used']:>6}{summary['pct_postdating']:>10.1%}")
 
-    edges = edges_for_policy(sims, instr["years"], wp["years"], closest=True)
+    edges = edges_for_policy(sims, instr["years"], wp["years"],
+                             wp_order=label_order(wp["labels"]), closest=True)
     summary = draw_graph(edges, instr, wp, instr_y, wp_y, years, bands, height,
                          "closest document (nearest paper overall) — WP → instrument matching",
                          OUTPUT_SUBDIR / "closest_document.png", all_valid=False)
@@ -293,5 +298,8 @@ def main():
     print(f"\n{len(rows)} graphs written to {OUTPUT_SUBDIR}/")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

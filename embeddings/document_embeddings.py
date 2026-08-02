@@ -4,6 +4,7 @@ import json
 import pathlib
 import sqlite3
 
+import numpy as np
 import openai
 import secret_management
 import pandas
@@ -33,9 +34,57 @@ def get_connection() -> sqlite3.Connection:
             PRIMARY KEY (document_uuid, model_uuid)
         )
     """)
+    # sha256 of the text this vector was generated from. For working papers it is redundant -- the
+    # uuid already *is* that hash -- but measures are keyed on a synthetic MEASURE__{id}, so their
+    # uuid says nothing about their content and a changed Content in MeasureCorpusEnriched.csv
+    # would otherwise keep returning the vector of the old text forever. Added by ALTER rather than
+    # in the CREATE so existing databases pick it up in place; NULL means "written before this
+    # column existed", which callers must treat as unknown rather than as a mismatch.
+    if not _has_column(conn, "embeddings", "content_hash"):
+        conn.execute("ALTER TABLE embeddings ADD COLUMN content_hash TEXT")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.commit()
     return conn
+
+
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def content_hash(text: str) -> str:
+    """The canonical content fingerprint: sha256 of the text, as used for wp/ip uuids."""
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def get_content_hash(document_uuid: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> str | None:
+    """The hash of the text a stored embedding was generated from, or None if unknown."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT content_hash FROM embeddings WHERE document_uuid=? AND model_uuid=?",
+            (document_uuid, model_uuid),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def delete_embedding(document_uuid: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> bool:
+    """Drop a cached embedding so it will be regenerated. Returns whether a row was removed."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM embeddings WHERE document_uuid=? AND model_uuid=?",
+            (document_uuid, model_uuid),
+        )
+    return cur.rowcount > 0
+
+
+def is_stale(document_uuid: str, text: str, model_uuid: str = DEFAULT_EMBEDDING_MODEL) -> bool:
+    """Whether a cached embedding was generated from text other than ``text``.
+
+    False when there is no cached row (nothing to be stale) and when the stored hash is NULL
+    (written before content hashes were recorded -- unknown, and re-embedding every such row would
+    mean paying for the entire corpus again to learn nothing).
+    """
+    stored = get_content_hash(document_uuid, model_uuid)
+    return stored is not None and stored != content_hash(text)
 
 
 # --------------------------------------------------------------------------- document types
@@ -144,9 +193,11 @@ def generate_embedding(document_uuid: str, document_type: str, text: str, model_
         # text we keep its vector and only contribute our type, so a race can add a type but never
         # drop one and never overwrites an embedding.
         conn.execute(
-            "INSERT OR IGNORE INTO embeddings (document_uuid, model_uuid, document_type, embedding) "
-            "VALUES (?, ?, json_array(?), ?)",
-            (document_uuid, model_uuid, document_type, array.array('f', vector).tobytes()),
+            "INSERT OR IGNORE INTO embeddings "
+            "(document_uuid, model_uuid, document_type, embedding, content_hash) "
+            "VALUES (?, ?, json_array(?), ?, ?)",
+            (document_uuid, model_uuid, document_type, array.array('f', vector).tobytes(),
+             content_hash(text)),
         )
         conn.execute(_MERGE_TYPE_SQL, (document_type, document_uuid, model_uuid))
 
@@ -290,6 +341,17 @@ class EmbeddingLookerUpper():
         
         return list(zip(map(lambda i: self.embeddings[i][0],  nearest_neighbours[1][0]), nearest_neighbours[0][0]))
 
+def mean_pool(vectors) -> np.ndarray:
+    """Combine a document's segment embeddings into one unit-norm vector.
+
+    Inputs are unit-norm, so a plain mean shrinks toward the origin as segments disagree;
+    re-normalising keeps every document comparable regardless of how many segments it was split
+    into.
+    """
+    pooled = np.mean(np.asarray(vectors, dtype="float32"), axis=0)
+    norm = np.linalg.norm(pooled)
+    return pooled if norm == 0 else pooled / norm
+
 def get_representation_of_measure(row):
     return f"Subject: {row.Subject}\n{row.Content}"
 
@@ -311,8 +373,11 @@ class DocumentTextGetter():
         document_file = pathlib.Path(self.wp_ip_map[document_uuid])
         wp_info_row = self.wp_ip_info[self.wp_ip_info["paper_url"].str.contains(document_file.stem)]
 
-        with open(document_file, "r") as f:
-            text = f.read()
+        # Same decoding as the embedding pass (embed_all_documents) and the location map, rather
+        # than the locale default: this has to return the text those hashed, and a locale-dependent
+        # open() both diverges from them and raises outright on a non-utf-8 byte under a utf-8
+        # locale.
+        text = document_file.read_text(encoding="utf-8", errors="ignore")
 
         if len(wp_info_row) >= 1: # Multiple rows if multiple attachements.
             wp_info_row = wp_info_row.iloc[0]
@@ -326,11 +391,66 @@ class DocumentTextGetter():
         else:
             return self.get_wp_ip_representation(document_uuid)
 
+    def source_document_key(self, document_uuid: str) -> str | None:
+        """What source document a stored embedding belongs to, or None if it can't be located.
+
+        Measures are embedded whole under a synthetic ``MEASURE__{id}`` uuid, so they are their own
+        key. A working/information paper's uuid is the sha256 of a *segment* of its text, and
+        ``wp_ip_map`` is what resolves that back to the file it was cut from.
+        """
+        if "MEASURE__" in document_uuid:
+            return document_uuid
+        return self.wp_ip_map.get(document_uuid)
+
     def get_all_of_type(self, type: str, with_embeddings: bool = False):
-        pairs = get_embeddings_by_type(type)
-        if with_embeddings:
-            return [{**self.get_document_representation(uuid), "uuid": uuid, "embedding": embedding} for uuid, embedding in pairs]
-        return [{**self.get_document_representation(uuid), "uuid": uuid} for uuid, _ in pairs]
+        """Every document of ``type``, one entry per source document -- not per embedding row.
+
+        A document longer than the embedder's context window does not occupy one row:
+        ``split_long_document`` cuts it into segments and each is stored under its own sha256. All
+        of those segments resolve back to the same file, so ``get_document_representation`` hands
+        back the same full text, year and parties for each -- the document simply appears N times.
+        Anything that counts documents then weights the long ones by how long they are, which is
+        not a weighting anyone chose: it inflates a topic model's cluster sizes (and can carry a
+        cluster past ``min_topic_size`` on duplicates alone), and double-counts those papers in
+        every per-document tally built downstream of one.
+
+        So segments are grouped back to their source file and collapsed into a single entry, whose
+        embedding is the ``mean_pool`` of its segments' -- the same pooling ``OpenRouterBackend``
+        applies, so a document's vector is identical whichever route it arrives by. ``uuid`` is the
+        first segment's, ``source`` the file (or measure uuid) the segments were grouped under, and
+        ``n_segments`` how many there were. Grouping preserves first-seen order, and
+        ``get_embeddings_by_type`` is ordered by uuid, so the result is deterministic.
+        """
+        by_document: dict[str, list[tuple[str, list[float]]]] = {}
+        unlocatable = 0
+        for uuid, embedding in get_embeddings_by_type(type):
+            key = self.source_document_key(uuid)
+            # A segment whose source file we cannot find belongs to no document, so it cannot be
+            # pooled or attributed. This happens when the cached wp_ip_map predates a change to the
+            # segmentation (the map is written once and never invalidated), leaving embeddings
+            # keyed on segment boundaries the map has never seen. Counting them is the point --
+            # silently dropping rows is exactly how a stale map goes unnoticed.
+            if key is None:
+                unlocatable += 1
+                continue
+            by_document.setdefault(key, []).append((uuid, embedding))
+
+        if unlocatable:
+            print(f"  warning: {unlocatable} '{type}' embedding(s) map to no source file and were "
+                  f"skipped; regenerate data/antarctic-db/processed/wp_ip_file_locations.json if "
+                  f"the segmentation has changed.")
+
+        documents = []
+        for source, segments in by_document.items():
+            # Every segment of a document resolves to the same representation (the representation
+            # reads the whole file), so the first uuid is enough to build it.
+            uuid = segments[0][0]
+            document = {**self.get_document_representation(uuid), "uuid": uuid,
+                        "source": source, "n_segments": len(segments)}
+            if with_embeddings:
+                document["embedding"] = mean_pool([e for _, e in segments])
+            documents.append(document)
+        return documents
 
 if __name__ == "__main__":
     print(DocumentTextGetter().get_all_of_type("WorkingPaper"))

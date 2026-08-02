@@ -67,5 +67,8 @@ def ocr_full_directory(directory_path: pathlib.Path):
     with multiprocessing.Pool(processes=8, initializer=no_logging) as pool:
         pool.map(parse_pdf_and_save, children_to_parse)
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     ocr_full_directory(pathlib.Path("/home/brycestansfield/Documents/Master_DS/ResearchWithMichael/AntarcticResearch/data/final_reports"))

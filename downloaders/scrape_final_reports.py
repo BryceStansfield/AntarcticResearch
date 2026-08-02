@@ -83,5 +83,8 @@ def run_final_report_downloading_pipeline(dump_directory = pathlib.Path("data/fi
     if not (dump_directory / "ocr.complete").exists():
         final_report_ocr.ocr_full_directory(dump_directory)
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     run_final_report_downloading_pipeline()

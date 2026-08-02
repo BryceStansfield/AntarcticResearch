@@ -1,18 +1,54 @@
 from typing import Any
 
 
+def _fold(key):
+    """Lowercase string keys, pass everything else through untouched."""
+    return key.lower() if isinstance(key, str) else key
+
+
 class CaseInsensitiveDict(dict):
+    """A dict whose string keys compare case-insensitively.
+
+    Every mutating entry point has to be overridden, not just ``__setitem__``. ``dict.__init__``
+    and ``dict.update`` are implemented in C and store keys directly rather than routing through
+    ``__setitem__``, so ``CaseInsensitiveDict({"USA": 1})`` used to keep the key as ``"USA"`` --
+    after which ``d["usa"]`` raised ``KeyError`` on a dict whose whole purpose is that it should
+    not. The classmethod ``from_dict`` was the only constructor that folded keys, so the
+    difference was invisible until someone used the type's own constructor.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.update(*args, **kwargs)
+
+    def update(self, *args, **kwargs):
+        for other in args:
+            items = other.items() if hasattr(other, "items") else other
+            for key, value in items:
+                self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
+
     def __setitem__(self, key, value):
-        super().__setitem__(key.lower() if isinstance(key, str) else key, value)
+        super().__setitem__(_fold(key), value)
 
     def __getitem__(self, key):
-        return super().__getitem__(key.lower() if isinstance(key, str) else key)
+        return super().__getitem__(_fold(key))
+
+    def __delitem__(self, key):
+        super().__delitem__(_fold(key))
 
     def __contains__(self, key):
-        return super().__contains__(key.lower() if isinstance(key, str) else key)
+        return super().__contains__(_fold(key))
 
     def get(self, key, default=None) -> Any:
-        return super().get(key.lower() if isinstance(key, str) else key, default)
+        return super().get(_fold(key), default)
+
+    def pop(self, key, *default):
+        return super().pop(_fold(key), *default)
+
+    def setdefault(self, key, default=None):
+        return super().setdefault(_fold(key), default)
 
     @classmethod
     def from_dict(cls, d):
@@ -39,6 +75,24 @@ alternative_names_to_countries = CaseInsensitiveDict.from_dict({
     alt: c1 for c1, alts in country_alternative_names.items() for alt in alts
 })
 
+def all_names_for(country_name):
+    """Every spelling of a country, whichever spelling you start from.
+
+    ``country_alternative_names`` is keyed by canonical name only, so looking an alias up in it
+    returns nothing: ``country_alternative_names.get("USA")`` is empty while
+    ``.get("United States")`` lists three aliases. Callers that expand a name through it directly
+    therefore only see the full alias set when they happen to hold the canonical spelling.
+
+    That is not a hypothetical split. ``get_list_of_country_names()`` returns canonical names *and*
+    every alias mixed together, so a caller iterating it asks about "USA" as readily as "United
+    States" -- and for "USA" would miss a dict holding its value under "United States", reporting a
+    spurious zero. Normalising to the canonical name first and expanding from there makes every
+    spelling of a country resolve to the same set.
+    """
+    canonical = alternative_names_to_countries.get(country_name, country_name)
+    return [canonical] + list(country_alternative_names.get(canonical, []))
+
+
 def get_country_value_from_dict(country_dict, country_name, missing=0):
     """Sum a country's entries, returning `missing` if it matches no key at all.
 
@@ -52,7 +106,7 @@ def get_country_value_from_dict(country_dict, country_name, missing=0):
     # The canonical name and its alternatives are deduplicated before summing. An
     # alias list that repeats the canonical name would otherwise match the same dict
     # entry twice and silently double that country's figure.
-    names = [country_name] + list(country_alternative_names.get(country_name, []))
+    names = all_names_for(country_name)
     seen = set()
     values = []
     for name in names:
@@ -75,12 +129,12 @@ def check_dict_coverage(country_dict, countries):
     # unused_keys comparison below never match, reporting every key as unused.
     for country in countries:
         found = False
-        if country in country_dict:
-            matched_keys.add(country.lower())
-            found = True
-        for alt_name in country_alternative_names.get(country, []):
-            if alt_name in country_dict:
-                matched_keys.add(alt_name.lower())
+        # Every spelling, resolved through the canonical name -- see all_names_for. Asking about
+        # an alias used to check only that alias, so a dict keyed on the canonical name reported
+        # the alias as not found while also reporting its own key as unused.
+        for name in all_names_for(country):
+            if name in country_dict:
+                matched_keys.add(name.lower())
                 found = True
         if not found:
             not_found.append(country)

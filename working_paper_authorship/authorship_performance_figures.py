@@ -14,6 +14,7 @@ Every figure sorts its bars by cross-entropy (lower is better) and includes the
 random-guess baseline, so a method that has learned nothing sits beside it.
 """
 import argparse
+import datetime
 import pathlib
 import re
 
@@ -115,7 +116,9 @@ def render(bars: list[dict], baseline: float, title: str, subtitle: str, path: p
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=7.5)
     ax.set_ylabel(Y_LABEL, fontsize=9)
     ax.set_ylim(0, max(values) * 1.16)
-    ax.set_title(title, fontsize=11, loc="left", pad=22)
+    # The subtitle is drawn upward from just above the axes, so each extra line eats into the gap
+    # the title sits in; grow the pad with the line count rather than letting them overlap.
+    ax.set_title(title, fontsize=11, loc="left", pad=22 + 10 * subtitle.count("\n"))
     # Offset in points, not axes fractions: the figure height varies with the bar count, and an
     # axes-fraction offset would drift into the title on the tall figures.
     ax.annotate(subtitle, xy=(0, 1), xycoords="axes fraction", xytext=(0, 7),
@@ -141,6 +144,30 @@ def render(bars: list[dict], baseline: float, title: str, subtitle: str, path: p
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     return path
+
+
+def _written_at(path: pathlib.Path) -> str:
+    """When a report was last written, for captioning which run a series came from."""
+    return datetime.date.fromtimestamp(path.stat().st_mtime).isoformat()
+
+
+def _check_comparable(full_series: list[dict], orth_series: list[dict],
+                      full_report: pathlib.Path, orthogonal_report: pathlib.Path) -> None:
+    """Refuse to plot two runs side by side unless they cover the same models.
+
+    Ranking bars from different runs against each other only means something if both runs scored
+    the same models. If one has an extra model -- or is missing one that failed to fit -- the
+    figure still renders, and reads as though the missing model simply performed differently.
+    """
+    full_models = {r["model"] for r in full_series}
+    orth_models = {r["model"] for r in orth_series}
+    if full_models != orth_models:
+        raise ValueError(
+            f"Model sets differ between runs: {full_report.name} has "
+            f"{sorted(full_models)} but {orthogonal_report.name} has {sorted(orth_models)}. "
+            "Re-run whichever benchmark is incomplete; a side-by-side ranking over different "
+            "model sets is not a comparison."
+        )
 
 
 def render_all_figures(full_report: pathlib.Path = FULL_REPORT,
@@ -172,11 +199,22 @@ def render_all_figures(full_report: pathlib.Path = FULL_REPORT,
                 f"Baseline mismatch: {full_report} reports {baseline:.4f} but {orthogonal_report} "
                 f"reports {orth_baseline:.4f} — the reports describe different validation sets."
             )
+        # This is the one figure whose bars do not share a provenance: the full-space series is
+        # read from one benchmark run and the orthogonalized series from a second, separate one.
+        # That is the comparison it exists to draw, but nothing in the bars themselves says so, and
+        # the two runs can be weeks and a re-embed apart. The baseline check above proves only that
+        # they scored the same validation split. So state the provenance in the caption, and refuse
+        # to draw a comparison across a model set that isn't the same on both sides.
+        full_series = select(rows, CENSORSHIP_DATASETS)
+        orth_series = select(orth_rows, ALL_DATASETS, orthogonal=True)
+        _check_comparable(full_series, orth_series, full_report, orthogonal_report)
         written.append(render(
-            select(rows, CENSORSHIP_DATASETS) + select(orth_rows, ALL_DATASETS, orthogonal=True),
+            full_series + orth_series,
             baseline,
             "Censorship methods vs. orthogonal decomposition of the country signal",
-            "Validation set; ranked by binary cross-entropy.",
+            "Validation set; ranked by binary cross-entropy.\n"
+            f"Solid bars from {full_report.name} ({_written_at(full_report)}); hatched from "
+            f"{orthogonal_report.name} ({_written_at(orthogonal_report)}) — two separate runs.",
             figures_dir / "censorship_vs_orthogonal.png"))
     else:
         print(f"No orthogonal report at {orthogonal_report} — skipping the comparison figure "

@@ -26,14 +26,29 @@ def roman_to_int(roman):
             result += roman_values[roman[i]]
     return result
 
+# "ATCM" as a whole word followed by its meeting number.
+#
+# The leading lookbehind is what stops the pattern firing inside **SATCM** -- the Special
+# Consultative Meetings, which carry their own numbering (SATCM I-XII) that has nothing to do with
+# MEETING_YEAR_DICT. Without it "SATCM XI (Utrecht, 1994)" read as ATCM XI and returned 1981.
+# Blocked here, such a title falls through to the parenthesised-year branch and returns its real
+# year.
+#
+# The whitespace is optional because the corpus writes both "ATCM 24" and "ATCM24", and the
+# trailing lookahead is what keeps that safe: with `\s*` and no lookahead, "ATCM Information Paper"
+# matches roman numeral "I" from "Information" and reports meeting 1.
+_ATCM_ROMAN = re.compile(r'(?<![A-Za-z])ATCM\s*([IVXL]+)(?![A-Za-z])')
+_ATCM_ARABIC = re.compile(r'(?<![A-Za-z])ATCM\s*(\d+)')
+
+
 def actm_meeting_to_year(atcm_name: str) -> int | None:
-    num_match = re.search(r'ATCM\s+([IVXL]+)', atcm_name)
+    num_match = _ATCM_ROMAN.search(atcm_name)
     if num_match:
         meeting_number = roman_to_int(num_match.group(1))
         if meeting_number is not None:
             return MEETING_YEAR_DICT.get(meeting_number, 2022 + (meeting_number - 44))
 
-    arabic_match = re.search(r'ATCM\s+(\d+)', atcm_name)
+    arabic_match = _ATCM_ARABIC.search(atcm_name)
     if arabic_match:
         meeting_number = int(arabic_match.group(1))
         return MEETING_YEAR_DICT.get(meeting_number, 2022 + (meeting_number - 44))

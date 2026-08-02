@@ -20,7 +20,7 @@ import openai
 import pandas as pd
 import secret_management
 from downloaders.map_all_wp_ip_locations import map_all_wp_ip_file_locations
-from sentence_splitter import chunk_sentences
+from sentence_splitter import chunk_sentences, chunk_sentence_spans
 
 # Working-paper filenames end in a language code (_e, _s, _f, _r); the suite is English.
 ENGLISH_SUFFIX = "_e"
@@ -410,20 +410,53 @@ def report_top_ratio_chunk(output_path: pathlib.Path = TEST_CHUNK_OUTPUT) -> tup
     return author, chunk
 
 
+def _censor_in_place(text: str, phrases_for_chunk) -> str | None:
+    """Rebuild ``text`` with each chunk's revealing phrases replaced, preserving everything else.
+
+    Substitution runs on the *source* span of each chunk rather than on the space-joined chunk
+    itself, and the text between spans is copied through untouched. This is what keeps the LLM arm
+    comparable with the naive one. ``censor_text`` is a plain ``re.sub`` over the document, so the
+    naive arm differs from raw by exactly the censored phrases; rebuilding the document out of
+    reflowed chunks made the LLM arm differ by the phrases *plus* a reflow. Measured over 300
+    papers, that reflow dropped 8029 of 54677 newlines (~15%) -- not all of them, since a sentence
+    spanning several lines keeps its internal breaks, but precisely the ones *between* sentences
+    and chunks, which is where paragraph structure lives. Rebuilt in place, 99.9% survive; the
+    remainder are newlines that sat inside a redacted phrase and left with it. A classifier
+    separating the two arms could have been reading either difference, and the whole point of the
+    comparison is to attribute it to censorship.
+
+    Phrase patterns join their words with ``\\s+`` (see ``_censor_pattern``), so a phrase running
+    across a line break still matches in the source span -- the redaction count is unchanged by
+    this rebuild on every one of those 300 papers.
+
+    ``phrases_for_chunk(chunk)`` returns the phrase list, or None to abort (used by the cache-only
+    variant, which must not fall back to a live call). Returns None if it ever does.
+    """
+    pieces, cursor = [], 0
+    for start, end, chunk in chunk_sentence_spans(text, LLM_CHUNK_SENTENCES):
+        phrases = phrases_for_chunk(chunk)
+        if phrases is None:
+            return None
+        pieces.append(text[cursor:start])  # whitespace, headers, anything punkt skipped
+        segment = text[start:end]
+        phrases = [p for p in phrases if p.strip()]
+        if phrases:
+            segment = _censor_pattern(phrases).sub(PLACEHOLDER, segment)
+        pieces.append(segment)
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def llm_censor_text(text: str, author: str) -> str:
     """Strip every LLM-identified party-revealing phrase from a document's text. Each sentence
     chunk is judged with the paper's known author in context, and censorship is segment-wide:
     a chunk's phrases are replaced with ``PLACEHOLDER`` only within that chunk (so a phrase
-    revealed in one segment never censors another), then the censored chunks are rejoined.
+    revealed in one segment never censors another). The document's own layout is preserved --
+    see ``_censor_in_place``.
     Run ``detect_all_working_paper_phrases`` first so this is a pure cache read rather than a
     flood of live LLM calls."""
-    censored_chunks = []
-    for chunk in chunk_sentences(text, LLM_CHUNK_SENTENCES):
-        phrases = [p for p in get_or_detect_phrases(author, chunk) if p.strip()]
-        if phrases:
-            chunk = _censor_pattern(phrases).sub(PLACEHOLDER, chunk)
-        censored_chunks.append(chunk)
-    return " ".join(censored_chunks) if censored_chunks else text
+    return _censor_in_place(text, lambda chunk: get_or_detect_phrases(author, chunk))
 
 
 _phrase_cache: dict[str, list[str]] | None = None
@@ -438,19 +471,15 @@ def llm_censor_text_cached(text: str, author: str) -> str | None:
     if _phrase_cache is None:
         _phrase_cache = _cached_phrase_lists()
 
-    censored_chunks = []
-    for chunk in chunk_sentences(text, LLM_CHUNK_SENTENCES):
-        phrases = _phrase_cache.get(_cache_key(author, chunk))
-        if phrases is None:
-            return None
-        phrases = [p for p in phrases if p.strip()]
-        if phrases:
-            chunk = _censor_pattern(phrases).sub(PLACEHOLDER, chunk)
-        censored_chunks.append(chunk)
-    return " ".join(censored_chunks) if censored_chunks else text
+    # .get returns None on a miss, which _censor_in_place propagates as the documented "some chunk
+    # was never detected" signal rather than reaching for a paid call.
+    return _censor_in_place(text, lambda chunk: _phrase_cache.get(_cache_key(author, chunk)))
 
+
+from utils import line_buffer_stdout
 
 if __name__ == "__main__":
+    line_buffer_stdout()
     # Populate the LLM revealing-phrase cache for every working-paper segment, then report
     # any papers with suspiciously many censored chunks and dump the highest phrase/author
     # ratio chunk's prompt for manual model testing.

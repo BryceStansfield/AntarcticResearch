@@ -41,9 +41,24 @@ def component_importances(pipeline, X_val, Y_val) -> tuple[np.ndarray, str]:
         return np.asarray(clf.feature_importances_), "native (impurity/gain feature_importances_)"
 
     # Native: linear models expose per-label coefficients — aggregate |coef| over labels.
+    #
+    # Scaled by each component's standard deviation, because a coefficient alone is not an
+    # importance when the features are not on a common scale. What a component contributes to the
+    # logit is |coef| * sd: PCA components are uncorrelated but explicitly *not* standardised —
+    # their variances are the eigenvalues, and here they span orders of magnitude — so a large
+    # coefficient on a component that barely varies moves the prediction less than a small one on a
+    # component that varies a lot. Ranking on |coef| alone is biased toward the low-variance tail,
+    # which is precisely the direction that would manufacture support for the "classifiers key on
+    # fine non-topic directions" hypothesis this report exists to test. On
+    # logistic_regression__raw__full it put components [16, 13, 28, 30, 22] on top while the true
+    # top contributors are [1, 0, 6, 16, 13] — the two highest-variance, most plausibly topical
+    # components never appeared at all. The tree and permutation branches are already scale-aware,
+    # so this also keeps the three methods measuring the same thing.
     if isinstance(clf, MultiOutputClassifier) and all(hasattr(e, "coef_") for e in clf.estimators_):
         coefs = np.vstack([np.abs(e.coef_).ravel() for e in clf.estimators_])
-        return coefs.mean(axis=0), "native (mean |coef| across country labels)"
+        component_sd = np.sqrt(pca.explained_variance_)
+        return (coefs.mean(axis=0) * component_sd,
+                "native (mean |coef| x component sd across country labels)")
 
     # Fallback (e.g. rbf SVM): permutation importance, scored by cross-entropy.
     transformed = pca.transform(X_val)
@@ -154,5 +169,8 @@ def build_report() -> None:
     print(f"Wrote {REPORT_PATH} ({len(lines)} lines)")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     build_report()

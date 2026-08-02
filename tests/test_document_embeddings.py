@@ -10,6 +10,7 @@ Every test runs against a throwaway sqlite file, and the one test that touches `
 stubs the OpenRouter client, so nothing here makes a paid call.
 """
 import array
+import hashlib
 import json
 import sqlite3
 from types import SimpleNamespace
@@ -334,4 +335,363 @@ def test_migration_ignores_expected_hashes_that_are_not_embedded_yet(db):
     """The censorship fix changed what censor_text emits, so many expected hashes have no row yet.
     Those must be skipped, not invented."""
     mig.migrate(apply=True, expected={"never_embedded": {"CensoredWorkingPaperV1"}})
+    assert de.get_embedding("never_embedded") is None
+
+
+# --------------------------------------------------------------- empty documents are not embedded
+
+def test_empty_documents_produce_no_embedding_args():
+    """The embedding endpoint 400s on an empty input, and a 400 is the same on every retry, so one
+    zero-byte file (ATCM2_wp010_e.txt is one) used to take down the entire embedding run. Empty
+    text has no embedding worth caching either way, so it is dropped before the pool ever sees it."""
+    assert de.get_wp_ip_embedding_args("", "WorkingPaper") == []
+    assert de.get_wp_ip_embedding_args("   \n\t  ", "WorkingPaper") == []
+
+
+def test_non_empty_documents_are_unaffected():
+    """The empty-document filter must not perturb the hashes of real documents: those uuids are the
+    primary key of the cache, so a change would orphan every row already stored."""
+    text = "A working paper with content."
+    (uuid, doc_type, segment), = de.get_wp_ip_embedding_args(text, "WorkingPaper")
+    assert uuid == hashlib.sha256(text.encode()).hexdigest()
+    assert (doc_type, segment) == ("WorkingPaper", text)
+
+
+# ------------------------------------------------- splitting respects BOTH limits, not just tokens
+
+class _FakeTokenizer:
+    """A tokenizer with a fixed, tunable character-per-token density.
+
+    The real Qwen tokenizer is a large download and its density varies by content, which is exactly
+    the variable under test. Here one token is `density` copies of a character, so a document's
+    token count and character count can be dialled independently."""
+
+    def __init__(self, density):
+        self.density = density
+
+    def encode(self, text):
+        return list(range(len(text) // self.density))
+
+    def decode(self, tokens):
+        return "x" * (len(tokens) * self.density)
+
+
+@pytest.fixture
+def dense_tokenizer(monkeypatch):
+    """4.16 chars/token -- the density of ATCM25_ip102_e, the document that triggered the 422."""
+    monkeypatch.setattr(de, "_tokenizer", _FakeTokenizer(density=4))
+
+
+def test_a_token_sized_segment_can_still_exceed_the_character_cap(dense_tokenizer):
+    """The regression. 32000 tokens at 4 chars/token is 128000 characters, inside the cap; but the
+    old splitter sized purely by tokens, so a dense document produced a segment over the cap and
+    the endpoint 422'd. Every segment must now satisfy the character bound independently."""
+    text = "x" * 258763  # ATCM25_ip102_e's length
+    segments = de.split_long_document(text)
+
+    assert len(segments) > 1
+    for segment in segments:
+        assert len(segment) < de.MAX_INPUT_CHARACTERS
+        assert len(de.get_tokenized_string(segment)) <= de.CONTEXT_WINDOW_LIMIT
+
+
+def test_character_bound_alone_can_force_a_split(monkeypatch):
+    """A document light on tokens but heavy on characters is inside the token window entirely, so
+    the token arithmetic alone returns it whole. The character cap still has to break it up."""
+    monkeypatch.setattr(de, "_tokenizer", _FakeTokenizer(density=40))
+    text = "x" * 400000  # only 10000 tokens, but way over the character cap
+
+    segments = de.split_long_document(text)
+
+    assert len(de.get_tokenized_string(text)) <= de.CONTEXT_WINDOW_LIMIT  # token budget alone: fine
+    assert len(segments) > 1
+    assert all(len(segment) < de.MAX_INPUT_CHARACTERS for segment in segments)
+
+
+def test_short_documents_are_returned_whole(dense_tokenizer):
+    """The early return must stay a pure passthrough: these uuids are cache keys, so re-splitting
+    documents that already embed fine would orphan every row stored against them."""
+    text = "x" * (de.CONTEXT_WINDOW_LIMIT * 3 - 1)
+    assert de.split_long_document(text) == [text]
+
+
+def test_the_early_return_can_never_emit_an_oversize_segment():
+    """The early return skips tokenization entirely, so it is only safe while its character
+    threshold sits below the cap. If CONTEXT_WINDOW_LIMIT is ever raised this fails, which is the
+    intent -- the passthrough would start emitting segments the endpoint rejects."""
+    assert de.CONTEXT_WINDOW_LIMIT * 3 < de.MAX_INPUT_CHARACTERS
+
+
+# ------------------------------------------------------ enumeration is per document, not per row
+
+def _getter(wp_ip_map):
+    """A `DocumentTextGetter` with only `wp_ip_map` populated.
+
+    `__init__` reads the measure CSV, the wp/ip location map and the document-summary parquet off
+    disk; none of that is what `get_all_of_type` is doing, so it is bypassed and the one attribute
+    the grouping consults is planted directly. `get_wp_ip_representation` is replaced with a stub
+    that names the segment it was called with, so a test can see which segment built the entry.
+    """
+    getter = object.__new__(de.DocumentTextGetter)
+    getter.wp_ip_map = wp_ip_map
+    getter.get_wp_ip_representation = lambda uuid: {
+        "text": f"text of {wp_ip_map[uuid]}", "built_from": uuid,
+    }
+    return getter
+
+
+def test_segments_of_one_document_collapse_to_a_single_entry(db):
+    """The bug this replaced: a paper too long for the context window is stored as several rows,
+    every one of which resolves to the same file and so came back as a full duplicate document.
+    A topic model then clustered the copies, and every per-document tally counted the paper twice."""
+    for uuid in ["s1", "s2", "s3"]:
+        _insert(db, uuid, '["WorkingPaper"]')
+    getter = _getter({"s1": "/wp/long.txt", "s2": "/wp/long.txt", "s3": "/wp/long.txt"})
+
+    documents = getter.get_all_of_type("WorkingPaper")
+
+    assert len(documents) == 1
+    assert documents[0]["n_segments"] == 3
+    assert documents[0]["source"] == "/wp/long.txt"
+
+
+def test_distinct_documents_are_not_merged(db):
+    _insert(db, "a1", '["WorkingPaper"]')
+    _insert(db, "b1", '["WorkingPaper"]')
+    getter = _getter({"a1": "/wp/a.txt", "b1": "/wp/b.txt"})
+
+    assert sorted(d["source"] for d in getter.get_all_of_type("WorkingPaper")) \
+        == ["/wp/a.txt", "/wp/b.txt"]
+
+
+def test_a_documents_embedding_is_its_segments_pooled(db):
+    """The vector must be what OpenRouterBackend would produce for the whole document -- the
+    mean of its segments, re-normalised -- not whichever segment happened to be enumerated first."""
+    _insert(db, "s1", '["WorkingPaper"]', vector=(1.0, 0.0))
+    _insert(db, "s2", '["WorkingPaper"]', vector=(0.0, 1.0))
+    getter = _getter({"s1": "/wp/long.txt", "s2": "/wp/long.txt"})
+
+    (document,) = getter.get_all_of_type("WorkingPaper", with_embeddings=True)
+
+    assert document["embedding"] == pytest.approx([2 ** -0.5, 2 ** -0.5])
+
+
+def test_segments_with_no_source_file_are_skipped_and_reported(db, capsys):
+    """`wp_ip_map` is written once and never invalidated, so after the segmentation changes the
+    store holds segment hashes the map has never seen. They belong to no document and cannot be
+    pooled -- but dropping them quietly is how a stale map goes unnoticed, so the count is printed."""
+    _insert(db, "known", '["WorkingPaper"]')
+    _insert(db, "orphan", '["WorkingPaper"]')
+    getter = _getter({"known": "/wp/a.txt"})
+
+    documents = getter.get_all_of_type("WorkingPaper")
+
+    assert [d["source"] for d in documents] == ["/wp/a.txt"]
+    assert "1 'WorkingPaper' embedding(s) map to no source file" in capsys.readouterr().out
+
+
+def test_measures_are_their_own_documents(db):
+    """Measures are embedded whole under a synthetic uuid rather than hashed per segment, so each
+    is already one row -- grouping must leave them exactly as they were."""
+    _insert(db, "MEASURE__1", '["measure"]')
+    _insert(db, "MEASURE__2", '["measure"]')
+    getter = _getter({})
+    getter.get_measure_representation = lambda measure_id: {"measure_id": measure_id}
+
+    documents = getter.get_all_of_type("measure")
+
+    assert [d["uuid"] for d in documents] == ["MEASURE__1", "MEASURE__2"]
+    assert all(d["n_segments"] == 1 for d in documents)
+
+
+def test_document_order_follows_uuid_order(db):
+    """Grouping keeps first-seen order and the underlying query is ordered by uuid, so the document
+    list is stable across rebuilds -- UMAP's input ordering depends on it."""
+    for uuid in ["cc", "aa", "bb"]:
+        _insert(db, uuid, '["WorkingPaper"]')
+    getter = _getter({"aa": "/wp/a.txt", "bb": "/wp/b.txt", "cc": "/wp/c.txt"})
+
+    assert [d["source"] for d in getter.get_all_of_type("WorkingPaper")] \
+        == ["/wp/a.txt", "/wp/b.txt", "/wp/c.txt"]
+
+
+def test_mean_pool_renormalises():
+    """Segment vectors are unit-norm; a plain mean of disagreeing segments is not, which would make
+    a long document's cosine similarities incomparable with a short one's."""
+    import numpy as np
+
+    pooled = de.mean_pool([[1.0, 0.0], [0.0, 1.0]])
+    assert np.linalg.norm(pooled) == pytest.approx(1.0)
+
+
+def test_mean_pool_leaves_a_single_segment_alone():
+    assert de.mean_pool([[1.0, 0.0]]) == pytest.approx([1.0, 0.0])
+
+
+# ---------------------------------------------- content hashing: measures are not content-addressed
+
+def test_generate_embedding_records_the_content_hash(db, monkeypatch):
+    _stub_openai(monkeypatch, (0.5,))
+    de.generate_embedding("MEASURE__1", "measure", "Subject: A\nOriginal content")
+    assert de.get_content_hash("MEASURE__1") == de.content_hash("Subject: A\nOriginal content")
+
+
+def test_is_stale_detects_changed_text_behind_a_synthetic_uuid(db, monkeypatch):
+    """Working papers self-correct: their uuid *is* the hash of their text, so editing the text
+    yields a new uuid and a cache miss. Measures are keyed on a synthetic MEASURE__{id}, so an
+    edited Subject/Content keeps the same key and the stale vector is returned forever."""
+    _stub_openai(monkeypatch, (0.5,))
+    de.generate_embedding("MEASURE__1", "measure", "Subject: A\nOriginal content")
+
+    assert de.is_stale("MEASURE__1", "Subject: A\nOriginal content") is False
+    assert de.is_stale("MEASURE__1", "Subject: A\nEDITED content") is True
+
+
+def test_is_stale_is_false_for_an_absent_row(db):
+    assert de.is_stale("MEASURE__404", "anything") is False
+
+
+def test_is_stale_is_false_when_the_hash_was_never_recorded(db):
+    """Rows written before the column existed have content_hash NULL. That is unknown, not
+    mismatched -- treating it as stale would re-embed the whole corpus to learn nothing."""
+    _insert(db, "MEASURE__1", '["measure"]')
+    assert de.get_content_hash("MEASURE__1") is None
+    assert de.is_stale("MEASURE__1", "anything at all") is False
+
+
+def test_delete_embedding_forces_regeneration(db, monkeypatch):
+    calls = _stub_openai(monkeypatch, (0.5,))
+    de.generate_embedding("MEASURE__1", "measure", "first")
+    assert de.delete_embedding("MEASURE__1") is True
+    assert de.get_embedding("MEASURE__1") is None
+
+    de.generate_embedding("MEASURE__1", "measure", "second")
+    assert de.get_content_hash("MEASURE__1") == de.content_hash("second")
+    assert len(calls) == 2
+
+
+def test_delete_embedding_reports_an_absent_row(db):
+    assert de.delete_embedding("nope") is False
+
+
+def test_the_content_hash_column_is_added_to_an_existing_database(tmp_path, monkeypatch):
+    """The column arrives by ALTER on a database that predates it, so an existing store picks it
+    up in place rather than needing a rebuild."""
+    path = tmp_path / "old.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.execute("""
+            CREATE TABLE embeddings (
+                document_uuid TEXT NOT NULL, model_uuid TEXT NOT NULL,
+                document_type TEXT NOT NULL, embedding BLOB NOT NULL,
+                PRIMARY KEY (document_uuid, model_uuid))
+        """)
+        conn.execute(
+            "INSERT INTO embeddings VALUES (?, ?, ?, ?)",
+            ("h1", MODEL, '["WorkingPaper"]', array.array("f", (1.0,)).tobytes()),
+        )
+    monkeypatch.setattr(de, "EMBEDDINGS_DB_PATH", path)
+
+    assert de.get_embedding("h1") == [1.0], "the pre-existing row must survive the migration"
+    assert de.get_content_hash("h1") is None
+
+
+# ------------------------------------------------------------------- EmbeddingLookerUpper (kNN)
+
+def _looker_upper(db, vectors: dict, document_type="WorkingPaper"):
+    for uuid, vec in vectors.items():
+        _insert(db, uuid, f'["{document_type}"]', vector=vec)
+    return de.EmbeddingLookerUpper(document_type)
+
+
+def test_nearest_neighbour_of_a_document_is_itself(db):
+    """Cosine distance to itself is 0, so a document must always be its own first neighbour."""
+    lookup = _looker_upper(db, {"a": (1.0, 0.0), "b": (0.0, 1.0), "c": (-1.0, 0.0)})
+    (uuid, distance), *_ = lookup.get_nearest_neighbours("a", n_neighbours=1)
+    assert uuid == "a"
+    assert distance == pytest.approx(0.0, abs=1e-6)
+
+
+def test_neighbours_come_back_in_increasing_distance(db):
+    lookup = _looker_upper(db, {"a": (1.0, 0.0), "b": (0.0, 1.0), "c": (-1.0, 0.0)})
+    results = lookup.get_nearest_neighbours("a", n_neighbours=3)
+
+    assert [uuid for uuid, _ in results] == ["a", "b", "c"], "self, orthogonal, then opposite"
+    distances = [d for _, d in results]
+    assert distances == sorted(distances)
+
+
+def test_distances_are_cosine_not_euclidean(db):
+    """A vector pointing the same way but ten times longer is at cosine distance 0, and would be
+    far away under any length-sensitive metric."""
+    lookup = _looker_upper(db, {"a": (1.0, 0.0), "long": (10.0, 0.0), "b": (0.0, 1.0)})
+    by_uuid = dict(lookup.get_nearest_neighbours("a", n_neighbours=3))
+
+    assert by_uuid["long"] == pytest.approx(0.0, abs=1e-6)
+    assert by_uuid["b"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_lookup_is_scoped_to_its_document_type(db):
+    """The index is built from one type, so a document of another type can never be returned."""
+    _insert(db, "other", '["InformationPaper"]', vector=(1.0, 0.0))
+    lookup = _looker_upper(db, {"a": (1.0, 0.0), "b": (0.0, 1.0)})
+
+    returned = {uuid for uuid, _ in lookup.get_nearest_neighbours("a", n_neighbours=2)}
+    assert "other" not in returned
+    assert returned == {"a", "b"}
+
+
+# ------------------------------- deduped dataset types are registered against the embedded row
+
+def test_register_dropped_types_makes_every_dataset_enumerable(db, monkeypatch):
+    """End-to-end for the dedup fix: one shared chunk, three datasets, all three types findable.
+
+    A working paper naming none of the target countries censors to itself, so raw/naive/llm all
+    produce one hash. Deduping embeds it once (correctly -- three calls would be three identical
+    paid requests), but the two losing type strings then have to be attached to the row that was
+    written, or `get_embeddings_by_type` reports those datasets as nearly empty.
+    """
+    from working_paper_authorship import country_authorship_classifier as cc
+
+    calls = _stub_openai(monkeypatch, (0.5,))
+    text = "A working paper naming no target country."
+    types = ["WPAuthorClf::raw::full", "WPAuthorClf::naive::full", "WPAuthorClf::llm_censorship::full"]
+    units = [de.get_wp_ip_embedding_args(text, t)[0] for t in types]
+
+    unique, seen = cc.collect_unique_units(units)
+    for digest, unit_type, unit_text in unique.values():
+        de.get_or_generate_embedding(digest, unit_type, unit_text)
+    added = cc.register_dropped_types(unique, seen)
+
+    assert len(calls) == 1, "the shared chunk must be embedded exactly once"
+    assert added == 2
+    for t in types:
+        assert len(de.get_embeddings_by_type(t)) == 1, f"{t} must be enumerable"
+
+
+def test_register_dropped_types_is_idempotent(db, monkeypatch):
+    from working_paper_authorship import country_authorship_classifier as cc
+
+    _stub_openai(monkeypatch, (0.5,))
+    text = "Shared text."
+    types = ["WPAuthorClf::raw::full", "WPAuthorClf::naive::full"]
+    units = [de.get_wp_ip_embedding_args(text, t)[0] for t in types]
+    unique, seen = cc.collect_unique_units(units)
+    for digest, unit_type, unit_text in unique.values():
+        de.get_or_generate_embedding(digest, unit_type, unit_text)
+
+    # The count is (hash, type) pairs tagged, so a rerun reports the same number; what must be
+    # idempotent is the stored type set, which is a set and cannot accumulate duplicates.
+    assert cc.register_dropped_types(unique, seen) == 1
+    assert cc.register_dropped_types(unique, seen) == 1
+    assert de.get_document_types(units[0][0]) == sorted(types)
+
+
+def test_register_dropped_types_does_nothing_without_an_embedded_row(db):
+    """It tags existing rows, so running it before the embedding pass is a no-op rather than a
+    silent write of a typed row with no vector."""
+    from working_paper_authorship import country_authorship_classifier as cc
+
+    unique = {"never_embedded": ("never_embedded", "WPAuthorClf::raw::full", "text")}
+    seen = {"never_embedded": {"WPAuthorClf::raw::full", "WPAuthorClf::naive::full"}}
+    assert cc.register_dropped_types(unique, seen) == 0
     assert de.get_embedding("never_embedded") is None

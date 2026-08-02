@@ -67,6 +67,7 @@ import numpy as np
 import pandas as pd
 
 import utils
+from utils import line_buffer_stdout
 from adhoc_analyses.measure_wp_topics import (
     fit_combined_topic_model,
     load_measures,
@@ -146,6 +147,32 @@ def eligible_wp_years(working_papers: list[dict]) -> np.ndarray:
     return years[ok]
 
 
+def label_order(labels) -> np.ndarray:
+    """Column permutation that sorts candidates by label.
+
+    Reorder a similarity matrix's columns by this before ``argmax`` and ties resolve by label
+    instead of by array position -- ``argmax`` returns the *first* maximal index, so putting the
+    columns in label order makes "first" mean "lexicographically smallest label".
+
+    Position is not a defensible tie-break here. It is the order ``load_working_papers`` happened to
+    build, which is ``get_embeddings_by_type``'s ``ORDER BY document_uuid`` -- so it is stable for a
+    fixed store, but the uuid is a sha256 of the document's text. Re-OCR a paper, or change the
+    segmentation, and its uuid moves, silently re-resolving ties between two *other* papers that
+    did not change at all. Sorting by label pins the choice to something meaningful and stable
+    across rebuilds.
+    """
+    return np.argsort(np.asarray(labels), kind="stable")
+
+
+def argmax_tiebroken(values: np.ndarray, order: np.ndarray) -> np.ndarray:
+    """``values.argmax(axis=-1)`` with ties broken by label, via ``label_order``'s permutation.
+
+    Works on a single row of similarities or a whole matrix; the returned indices are into the
+    original, unpermuted columns.
+    """
+    return order[values[..., order].argmax(axis=-1)]
+
+
 def match_instruments(measures: list[dict], working_papers: list[dict]) -> pd.DataFrame:
     """Earliest preceding working paper above the similarity threshold."""
     wp_years = np.array(
@@ -153,6 +180,7 @@ def match_instruments(measures: list[dict], working_papers: list[dict]) -> pd.Da
     )
     wp_matrix = np.vstack([w["embedding"] for w in working_papers])
     wp_ok = np.array([_has_real_party(w) for w in working_papers]) & ~np.isnan(wp_years)
+    wp_order = label_order([w["label"] for w in working_papers])
 
     rows = []
     for measure in measures:
@@ -180,9 +208,11 @@ def match_instruments(measures: list[dict], working_papers: list[dict]) -> pd.Da
 
         if qualifying.any():
             earliest_year = wp_years[qualifying].min()
-            # Several papers can share the earliest year; take the most similar.
+            # Several papers can share the earliest year; take the most similar, and where two of
+            # those are equally similar take the lexicographically first label rather than
+            # whichever the store happened to return first (see label_order).
             tie = qualifying & (wp_years == earliest_year)
-            best = int(np.argmax(np.where(tie, sims, -np.inf)))
+            best = int(argmax_tiebroken(np.where(tie, sims, -np.inf), wp_order))
             row.update(
                 {
                     "matched_wp": working_papers[best]["label"],
@@ -204,15 +234,29 @@ def chance_latency_by_topic(matches: pd.DataFrame, wp_years: np.ndarray) -> dict
     """Median latency a topic would show if its papers were picked at random.
 
     The matcher may only look backwards, so the null draws from *preceding*
-    papers only: the latencies are ``instrument_year - wp_years`` restricted to
-    papers that predate. Pooling over the topic's instruments gives the latency
-    the topic would show with no matching signal at all.
+    papers only: the candidate latencies for one instrument are
+    ``instrument_year - wp_years`` restricted to papers that predate it.
+
+    Each instrument contributes its own median and the topic's figure is the
+    median of those -- one vote per instrument, which is how ``median_latency``
+    weights them too. Concatenating every instrument's candidates into a single
+    pool instead weights each instrument by how many preceding papers it happens
+    to have, and the corpus grows steeply over time (135 eligible papers precede
+    1965, 2030 precede 2019), so a topic holding a 1965 and a 2019 instrument had
+    93.8% of its pool contributed by the 2019 one. The bias has a direction: the
+    instruments contributing the most rows are the late ones, which also have the
+    deepest history behind them and so the largest chance lags. Pooling therefore
+    pushed ``chance_latency`` up (18.0 rather than 11.0 on that pair) and
+    ``median_vs_chance`` down, flattering the matcher.
     """
     chance = {}
     for topic, group in matches[matches["topic"] != -1].groupby("topic"):
         years = group.drop_duplicates("instrument")["instrument_year"].values
-        null = np.concatenate([year - wp_years[wp_years <= year] for year in years])
-        chance[topic] = float(np.median(null)) if len(null) else np.nan
+        per_instrument = [
+            float(np.median(year - wp_years[wp_years <= year]))
+            for year in years if (wp_years <= year).any()
+        ]
+        chance[topic] = float(np.median(per_instrument)) if per_instrument else np.nan
     return chance
 
 
@@ -430,4 +474,5 @@ def main():
 
 
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

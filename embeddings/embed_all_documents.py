@@ -101,6 +101,7 @@ def embed_all_measures():
     pd = pandas.read_csv("data/MeasureCorpusEnriched.csv")
 
     to_embed = []
+    stale = 0
 
     for row in pd.itertuples():
         if pandas.isna(row.Content):
@@ -110,9 +111,22 @@ def embed_all_measures():
         doc_id = measure_id_to_uuid(doc_num)
         text_rep = get_representation_of_measure(row)
 
+        # Measures are the one corpus whose uuid is synthetic rather than a hash of its own text,
+        # so `has_embedding` alone cannot tell "already embedded" from "embedded, then the CSV
+        # changed underneath it". Every other type self-corrects: edit the text and you get a new
+        # uuid and a cache miss. Here the key is stable, so an edited Subject/Content would keep
+        # returning the vector of the superseded text indefinitely. Checking the recorded content
+        # hash restores that property; the stale row is dropped so the insert is not ignored.
+        if is_stale(doc_id, text_rep):
+            stale += 1
+            delete_embedding(doc_id)
+
         if not has_embedding(doc_id):
             to_embed.append((doc_id, "measure", text_rep,))
-    
+
+    if stale:
+        print(f"  {stale} measure(s) changed in MeasureCorpusEnriched.csv since they were "
+              f"embedded; their cached vectors were dropped and will be regenerated.")
     embed_document_set(to_embed)
 
 def embed_all_censored_working_papers(countries=COUNTRIES):
@@ -158,5 +172,8 @@ def embed_all():
     embed_all_censored_working_papers()
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     embed_all()

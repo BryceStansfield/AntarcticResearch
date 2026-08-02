@@ -39,7 +39,8 @@ import pandas as pd
 from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap
 
 from adhoc_analyses.measure_wp_topics import load_measures, load_working_papers
-from latency_analyses.measure_wp_latency import OUTPUT_DIR, SIMILARITY_THRESHOLD, _has_real_party
+from latency_analyses.measure_wp_latency import (OUTPUT_DIR, SIMILARITY_THRESHOLD,
+                                                 _has_real_party, argmax_tiebroken, label_order)
 
 THRESHOLDS = np.round(np.arange(0.70, 0.951, 0.01), 2)
 # The by-decade panel: one clearly-degenerate threshold, the agreed one, and one
@@ -69,6 +70,7 @@ def build_matrix():
         if _has_real_party(w) and not pd.isna(w["year"])
     ]
     wp_years = np.array([float(w["year"]) for w in keep])
+    wp_order = label_order([w["label"] for w in keep])
     wp_matrix = np.vstack([w["embedding"] for w in keep])
     measure_matrix = np.vstack([np.asarray(m["embedding"], dtype="float32") for m in measures])
     measure_years = np.array([float(m["year"]) for m in measures])
@@ -76,10 +78,10 @@ def build_matrix():
 
     # Unit-norm vectors, so this is cosine similarity.
     sims = measure_matrix @ wp_matrix.T
-    return sims, measure_years, measure_types, wp_years
+    return sims, measure_years, measure_types, wp_years, wp_order
 
 
-def sweep(sims, measure_years, wp_years, mask=None) -> pd.DataFrame:
+def sweep(sims, measure_years, wp_years, wp_order, mask=None) -> pd.DataFrame:
     """For each threshold, how far back does the earliest-match rule reach?"""
     if mask is None:
         mask = np.ones(len(measure_years), dtype=bool)
@@ -105,7 +107,8 @@ def sweep(sims, measure_years, wp_years, mask=None) -> pd.DataFrame:
 
         # nearest above threshold (the most similar surviving paper)
         sims_masked = np.where(ok, sims, -np.inf)
-        nearest_idx = sims_masked.argmax(axis=1)
+        # Ties by label, not by column position -- see measure_wp_latency.label_order.
+        nearest_idx = argmax_tiebroken(sims_masked, wp_order)
         lag_nearest = measure_years - wp_years[nearest_idx]
 
         le, ln, av = lag_earliest[has], lag_nearest[has], available[has]
@@ -262,6 +265,28 @@ def plot_decade_family(decades, thresholds, path: pathlib.Path):
     plt.close(fig)
 
 
+NULL_SAMPLE_SIZE = 200_000
+NULL_SAMPLE_SEED = 0
+
+
+def null_sample(sims: np.ndarray, size: int = NULL_SAMPLE_SIZE,
+                seed: int = NULL_SAMPLE_SEED) -> np.ndarray:
+    """A representative subsample of every instrument-paper similarity, for the null histogram.
+
+    Drawn at random from a fixed seed rather than by striding ``sims.ravel()[::k]``. Striding a
+    flattened matrix walks it in row-major order, so the stride interacts with the row length: when
+    ``k`` shares a factor with the number of papers it revisits the same column positions over and
+    over, sampling a narrow set of papers against every instrument instead of the pair space. It is
+    also re-selected by any change to row or column order, so the drawn null moved whenever the
+    corpus was rebuilt.
+    """
+    flat = sims.ravel()
+    if flat.size <= size:
+        return flat
+    rng = np.random.default_rng(seed)
+    return flat[rng.choice(flat.size, size=size, replace=False)]
+
+
 def plot(sims, table, decades, path: pathlib.Path):
     fig, axes = plt.subplots(2, 2, figsize=(14, 9.5))
     for ax in axes.flat:
@@ -280,7 +305,7 @@ def plot(sims, table, decades, path: pathlib.Path):
     for data, color, label in [
         (ordered[:, 0], SERIES[0], "rank-1 match"),
         (ordered[:, 4], SERIES[1], "rank-5 match"),
-        (sims.ravel()[:: max(1, sims.size // 200000)], SERIES[2], "random pair (null)"),
+        (null_sample(sims), SERIES[2], "random pair (null)"),
     ]:
         ax.hist(data, bins=bins, density=True, histtype="step", linewidth=1.8, color=color, label=label)
     ax.set_title("A. Similarity: matches vs the null", fontsize=11, color=INK, loc="left")
@@ -331,7 +356,7 @@ def plot(sims, table, decades, path: pathlib.Path):
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print("Loading cached embeddings...")
-    sims, measure_years, measure_types, wp_years = build_matrix()
+    sims, measure_years, measure_types, wp_years, wp_order = build_matrix()
     print(f"  {sims.shape[0]} instruments x {sims.shape[1]} eligible working papers")
 
     print("\nSimilarity distribution (all instrument-paper pairs = the null):")
@@ -342,7 +367,7 @@ def main():
               f"p75 {qs[3]:.3f}  p95 {qs[4]:.3f}")
     print(f"  null p99 {np.percentile(sims, 99):.3f}   null p99.9 {np.percentile(sims, 99.9):.3f}")
 
-    table = sweep(sims, measure_years, wp_years)
+    table = sweep(sims, measure_years, wp_years, wp_order)
     table.to_csv(OUTPUT_DIR / "threshold_sweep.csv", index=False)
 
     print("\nThreshold sweep (all instruments):")
@@ -354,7 +379,7 @@ def main():
               f"{r.median_available_history:>9.1f}{r.degeneracy_ratio:>12.2f}")
 
     is_measure = measure_types == "Measure"
-    m_table = sweep(sims, measure_years, wp_years, mask=is_measure)
+    m_table = sweep(sims, measure_years, wp_years, wp_order, mask=is_measure)
     print(f"\nSame sweep, Type == Measure only (n={int(is_measure.sum())}):")
     print(f"  {'thr':>5}{'cover':>8}{'lag(earliest)':>15}{'lag(nearest)':>14}{'degeneracy':>12}")
     for r in m_table.itertuples():
@@ -374,5 +399,8 @@ def main():
     print(f"\nWritten to {OUTPUT_DIR}/")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

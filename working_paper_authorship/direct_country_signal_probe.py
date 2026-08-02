@@ -61,8 +61,6 @@ MIN_BODY_WORDS = 80          # drop blank / failed-OCR scans: prepending a line 
 DEFAULT_WORKERS = 32
 INJECTION_EMBED_TYPE = "DirectCountrySignalProbeV1"  # document_type for the persisted injected embeddings
 PREFIX = "THE FOLLOWING DOCUMENT IS AUTHORED BY {country}"
-NATURAL_CENSORSHIP_SHIFT = 0.0040  # reference: mean raw->naive whole-doc cosine shift (see paired-space probe)
-
 
 def sample_documents() -> list[dict]:
     """A deterministic sample of non-degenerate target-country WPs, with their naive-censored body."""
@@ -211,7 +209,6 @@ def run(all_wps: bool = False, workers: int = DEFAULT_WORKERS) -> None:
         f"Documents: {n} — {scope}, >= {MIN_BODY_WORDS} body words.   Countries: {', '.join(COUNTRIES)}",
         "",
         f"1) MAGNITUDE  mean shift = {shift.mean():.4f} cosine dist "
-        f"(~{shift.mean() / NATURAL_CENSORSHIP_SHIFT:.1f}x the ~{NATURAL_CENSORSHIP_SHIFT:.4f} natural raw->naive censorship shift)",
         f"   country-specific fraction of each shift = {frac_country:.3f} "
         f"(the rest is the generic 'an authorship line exists' effect shared across countries)",
         "",
@@ -264,5 +261,8 @@ def main() -> None:
     run(all_wps=args.all_wps, workers=args.workers)
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

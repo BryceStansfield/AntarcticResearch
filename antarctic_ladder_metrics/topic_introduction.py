@@ -13,8 +13,14 @@ from utils import split_parties
 class WPBertTopic():
     def __init__(self):
         self.document_text_getter = document_embeddings.DocumentTextGetter()
+        # One entry per paper, not per embedding row -- a paper long enough to be split is stored
+        # as several segments, and enumerating rows fed each of them to BERTopic as a separate
+        # (identical) document. See DocumentTextGetter.get_all_of_type.
         documents = self.document_text_getter.get_all_of_type("WorkingPaper")
-        self.documents = list(filter(lambda d: d["paper_language"].lower() == "english", documents))
+        # Papers with no row in document-summary.parquet have no language to filter on, so they
+        # drop out here -- as measure_wp_topics.load_working_papers documents that they do.
+        self.documents = [d for d in documents
+                          if str(d.get("paper_language", "")).lower() == "english"]
 
         # NOTE:
         # This exists because UMAP(random_state=42) has some weird default settings, like mapping to 2d

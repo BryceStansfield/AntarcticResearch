@@ -6,7 +6,10 @@ mis-split here shows up as country credit landing in the wrong place.
 import numpy as np
 import pytest
 
-from utils import split_parties
+import pathlib
+import time
+
+from utils import line_buffer_stdout, split_parties
 
 
 def test_strips_and_lowercases_each_party():
@@ -69,3 +72,46 @@ def test_a_bare_string_is_rejected():
 def test_a_single_party_still_works_when_wrapped():
     """The fix must not make the legitimate one-party case awkward."""
     assert split_parties(["Chile"]) == ["chile"]
+
+
+# --------------------------------------------------------------------- line_buffer_stdout
+
+def test_line_buffer_stdout_makes_writes_appear_immediately(tmp_path):
+    """The property that matters: a redirected script's progress reaches the file as it prints.
+
+    Python block-buffers stdout when it is not a terminal, so a long run's `print` output sits in
+    an ~8KB buffer while stderr warnings flush past it -- the log looks stalled and a working run
+    is indistinguishable from a hung one. Exercised in a subprocess because it is a property of a
+    real redirected stdout, which pytest's capture replaces.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    script = tmp_path / "prints.py"
+    log = tmp_path / "out.log"
+    # Print, then block. If stdout were block-buffered the line would still be unwritten.
+    script.write_text(textwrap.dedent(f"""
+        import sys, time
+        sys.path.insert(0, {str(pathlib.Path.cwd())!r})
+        from utils import line_buffer_stdout
+        line_buffer_stdout()
+        print("progress line")
+        time.sleep(30)
+    """))
+
+    proc = subprocess.Popen([sys.executable, str(script)], stdout=log.open("w"), stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.time() + 15
+        while time.time() < deadline and "progress line" not in log.read_text():
+            time.sleep(0.2)
+        assert "progress line" in log.read_text(), "line should be flushed before the process exits"
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_line_buffer_stdout_is_idempotent():
+    """Called from every long-running entry point; calling it twice must not raise."""
+    line_buffer_stdout()
+    line_buffer_stdout()

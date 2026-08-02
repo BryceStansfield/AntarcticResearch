@@ -35,5 +35,8 @@ def main():
     print(f"\nAll {len(ANALYSES)} latency analyses complete.")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

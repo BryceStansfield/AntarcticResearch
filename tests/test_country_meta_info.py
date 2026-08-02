@@ -143,3 +143,94 @@ def test_coverage_is_clean_when_everything_lines_up():
     unused, not_found = check_dict_coverage({"chile": 1, "peru": 2},
                                             ["Chile", "Peru"])
     assert (unused, not_found) == ([], [])
+
+
+# ------------------------------- CaseInsensitiveDict: the C-level entry points fold keys too
+
+def test_constructor_folds_keys():
+    """`dict.__init__` is implemented in C and stores keys directly rather than routing through
+    `__setitem__`, so the type's own constructor used to build a dict that was not in fact
+    case-insensitive -- while `from_dict` produced one that was."""
+    d = CaseInsensitiveDict({"USA": 1})
+    assert d["usa"] == 1
+    assert "USA" in d
+
+
+def test_constructor_accepts_pairs_and_kwargs():
+    assert CaseInsensitiveDict([("Chile", 1)])["chile"] == 1
+    assert CaseInsensitiveDict(Norway=2)["norway"] == 2
+
+
+def test_update_folds_keys():
+    """Same defect as the constructor: `dict.update` bypasses `__setitem__`."""
+    d = CaseInsensitiveDict()
+    d.update({"Norway": 5})
+    assert d["NORWAY"] == 5
+
+    d.update([("Chile", 6)])
+    assert d["chile"] == 6
+
+
+def test_setdefault_and_pop_and_delete_fold_keys():
+    d = CaseInsensitiveDict({"Peru": 1})
+    assert d.setdefault("PERU", 99) == 1, "must find the existing entry, not insert a second"
+    assert d.setdefault("Brazil", 7) == 7
+    assert d["brazil"] == 7
+
+    assert d.pop("BRAZIL") == 7
+    assert "brazil" not in d
+
+    del d["PERU"]
+    assert "peru" not in d
+
+
+def test_a_dict_built_by_constructor_matches_one_built_by_from_dict():
+    assert dict(CaseInsensitiveDict({"USA": 1})) == dict(CaseInsensitiveDict.from_dict({"USA": 1}))
+
+
+# --------------------------------------------- aliases resolve in both directions (all_names_for)
+
+def test_all_names_for_expands_from_the_canonical_name():
+    names = [n.lower() for n in cmi.all_names_for("United States")]
+    assert "united states" in names and "usa" in names and "us" in names
+
+
+def test_all_names_for_expands_from_an_alias():
+    """`country_alternative_names` is keyed by canonical name only, so looking up "USA" in it
+    directly returns nothing. Normalising to the canonical name first is what makes every spelling
+    of a country resolve to the same set."""
+    assert sorted(n.lower() for n in cmi.all_names_for("USA")) == \
+           sorted(n.lower() for n in cmi.all_names_for("United States"))
+
+
+def test_all_names_for_passes_through_an_unknown_country():
+    assert cmi.all_names_for("Atlantis") == ["Atlantis"]
+
+
+def test_value_lookup_by_alias_finds_a_canonically_keyed_dict():
+    """The regression. `get_list_of_country_names()` returns canonical names *and* aliases, so a
+    caller iterating it asks about "USA" as readily as "United States"; asking by alias used to
+    miss a dict keyed canonically and report a spurious zero."""
+    assert get_country_value_from_dict({"United States": 4}, "USA") == 4
+    assert get_country_value_from_dict({"united states": 4}, "US") == 4
+
+
+def test_value_lookup_by_canonical_name_still_finds_an_alias_keyed_dict():
+    assert get_country_value_from_dict({"USA": 4}, "United States") == 4
+
+
+def test_value_lookup_by_alias_does_not_double_count():
+    """A dict holding the same country under two spellings must still sum each entry once."""
+    assert get_country_value_from_dict({"United States": 4, "USA": 5}, "USA") == 9
+
+
+def test_missing_sentinel_still_applies_to_an_unmatched_alias():
+    assert get_country_value_from_dict({"Chile": 1}, "USA") == 0
+    assert math.isnan(get_country_value_from_dict({"Chile": 1}, "USA", missing=float("nan")))
+
+
+def test_coverage_by_alias_finds_a_canonically_keyed_dict():
+    """Symmetric to the value lookup: asking about "USA" over a dict keyed "United States" used to
+    report the country as not-found *and* its key as unused -- one absence counted twice."""
+    unused, not_found = check_dict_coverage({"united states": 1}, ["USA"])
+    assert (unused, not_found) == ([], [])

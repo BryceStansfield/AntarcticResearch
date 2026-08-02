@@ -12,6 +12,7 @@ train+val (same hyperparameters, no new search) and scored once on the held-out 
 final_test_report.txt. It is opt-in because every run of it consumes the test set.
 """
 import argparse
+import hashlib
 import json
 import pathlib
 import pickle
@@ -28,14 +29,15 @@ from sklearn.svm import SVC
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.decomposition import PCA
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, GridSearchCV, GroupKFold
 from sklearn.metrics import accuracy_score, precision_score, recall_score, log_loss
 from xgboost import XGBClassifier
 
-from utils import split_parties
+from utils import split_parties, line_buffer_stdout
 from country_meta_info import CaseInsensitiveDict, country_alternative_names
 from embeddings.working_paper_censorship import get_working_paper_paths, censor_text, llm_censor_text, author_for_stem
-from embeddings.document_embeddings import get_wp_ip_embedding_args, get_embedding, has_embedding
+from embeddings.document_embeddings import (add_document_type, get_wp_ip_embedding_args,
+                                            get_embedding, has_embedding)
 from embeddings.embed_all_documents import embed_document_set
 from working_paper_authorship.country_signal_projection import CountrySignalProjector
 from working_paper_authorship.authorship_performance_figures import render_all_figures
@@ -106,14 +108,23 @@ def positive_proba(estimator, X) -> np.ndarray:
     if not isinstance(proba, list):
         return np.asarray(proba)
 
-    classes = getattr(estimator, "classes_", None)
+    # Which class a single-column predict_proba refers to has to come from the per-label estimator,
+    # not from the wrapper. MultiOutputClassifier exposes no `classes_` of its own (sklearn 1.9),
+    # so the old `getattr(estimator, "classes_", None)` was always None and the branch below always
+    # took the negative reading -- a fold containing only positives for a rare label (Norway is the
+    # one that hits this) was scored as P(author)=0.0 for every row, i.e. maximally wrong, and the
+    # cross-entropy that selected hyperparameters was computed against it.
+    estimators = getattr(estimator, "estimators_", None)
+
     cols = []
     for i, p in enumerate(proba):
         if p.shape[1] >= 2:
             cols.append(p[:, 1])
         else:
-            # A CV fold may contain only one class for a rare label (e.g. Norway).
-            only_positive = classes is not None and classes[i][0] == 1
+            # A CV fold may contain only one class for a rare label (e.g. Norway). The single
+            # column is P(that class), so it is P(label==1) exactly when that class *is* 1.
+            classes = getattr(estimators[i], "classes_", None) if estimators is not None else None
+            only_positive = classes is not None and len(classes) and classes[0] == 1
             cols.append(np.full(p.shape[0], 1.0 if only_positive else 0.0))
     return np.column_stack(cols)
 
@@ -155,16 +166,38 @@ def base_pipeline(name: str) -> Pipeline:
     raise ValueError(f"Unknown model: {name}")
 
 
+def inner_cv():
+    """The cross-validation splitter used inside the hyperparameter search.
+
+    Grouped by source document, not by row. A paper longer than the embedder's context window is
+    split by ``get_wp_ip_embedding_args`` into several segments, and every segment carries that
+    paper's authorship label -- so a plain row-wise ``KFold`` can put one part of a paper in train
+    and another in validation. The two are near-duplicate text with an identical label, which is
+    the textbook leak: the score it produces is optimistic, and it is the score the hyperparameters
+    are selected on.
+
+    Today's rows happen to be contiguous per document, so an unshuffled KFold only leaked at fold
+    boundaries and the damage was small -- but nothing enforced that ordering, and grouping states
+    the requirement instead of relying on it. ``stems`` out of ``assemble_xy`` is the group key.
+
+    GroupKFold is also deterministic (it has no shuffle), which keeps the search reproducible.
+    """
+    return GroupKFold(n_splits=CV_FOLDS)
+
+
 def make_search(name: str, pca_dims: list[int]):
     """Wrap the base pipeline in its hyperparameter search (Grid for LR/RF, Optuna for
-    XGB/SVM), scored by cross-entropy."""
+    XGB/SVM), scored by cross-entropy.
+
+    The returned search must be fitted with ``groups=`` (the per-row document stems) -- see
+    ``inner_cv``."""
     pipe = base_pipeline(name)
     if name == "Logistic Regression":
         return GridSearchCV(pipe, {"pca__n_components": pca_dims},
-                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=SEARCH_N_JOBS)
+                            scoring=neg_cross_entropy_scorer, cv=inner_cv(), n_jobs=SEARCH_N_JOBS)
     if name == "Random Forest":
         return GridSearchCV(pipe, {"pca__n_components": pca_dims, "clf__max_depth": [None, 5, 10, 20]},
-                            scoring=neg_cross_entropy_scorer, cv=CV_FOLDS, n_jobs=SEARCH_N_JOBS)
+                            scoring=neg_cross_entropy_scorer, cv=inner_cv(), n_jobs=SEARCH_N_JOBS)
     if name == "XGBoost":
         return OptunaSearchCV(pipe, {
             "pca__n_components": CategoricalDistribution(pca_dims),
@@ -172,7 +205,7 @@ def make_search(name: str, pca_dims: list[int]):
             "clf__max_depth": IntDistribution(3, 10),
             "clf__n_estimators": IntDistribution(100, 1000),
             "clf__subsample": FloatDistribution(0.5, 1.0),
-        }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=CV_FOLDS,
+        }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=inner_cv(),
             n_jobs=SEARCH_N_JOBS, random_state=OPTUNA_RANDOM_STATE)
     if name == "SVM":
         return OptunaSearchCV(pipe, {
@@ -180,7 +213,7 @@ def make_search(name: str, pca_dims: list[int]):
             "clf__estimator__estimator__C": FloatDistribution(1e-2, 1e2, log=True),
             "clf__estimator__estimator__gamma": FloatDistribution(1e-4, 1e0, log=True),
             "clf__estimator__estimator__kernel": CategoricalDistribution(["rbf"]),
-        }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=CV_FOLDS,
+        }, n_trials=N_OPTUNA_TRIALS, scoring=neg_cross_entropy_scorer, cv=inner_cv(),
             n_jobs=SEARCH_N_JOBS, random_state=OPTUNA_RANDOM_STATE)
     raise ValueError(f"Unknown model: {name}")
 
@@ -271,6 +304,101 @@ def dataset_units(records: list[dict], method: str):
             embed_units.append((h, t, segment))
             hash_labels.append((h, rec["label"], rec["stem"]))
     return embed_units, hash_labels
+
+
+def dataset_fingerprint(*hash_label_plans) -> str:
+    """A content fingerprint of one dataset: its rows, their labels and which document each is from.
+
+    Every cached artefact here -- ``best_hyperparameters__{slug}.json`` and the model pickles -- is
+    keyed on the dataset *slug* alone, which names the censorship method and nothing about the data.
+    So a rerun after the corpus changed (a re-OCR, a re-embed, a censorship fix, a different
+    train/val split) loaded hyperparameters searched on the old data and models fitted to it, and
+    reported their numbers as if they described the new data. Nothing anywhere said otherwise.
+
+    The fingerprint closes that. It hashes the row hashes -- which are sha256 of the *censored*
+    text, so they move if either the source text or the censorship changes -- together with each
+    row's label and stem, so a relabelling or a reshuffled split is caught too. Sorted first, so it
+    depends on the dataset's content rather than on enumeration order.
+    """
+    digest = hashlib.sha256()
+    rows = sorted(
+        (h, stem, ",".join(str(int(v)) for v in np.asarray(label).ravel()))
+        for plan in hash_label_plans for h, label, stem in plan
+    )
+    for h, stem, label in rows:
+        digest.update(f"{h}\x1f{stem}\x1f{label}\x1e".encode())
+    return digest.hexdigest()
+
+
+def cached_artefacts_are_current(slug: str, fingerprint: str, output_dir: pathlib.Path) -> bool:
+    """Whether ``slug``'s cached models/hyperparameters describe this exact dataset.
+
+    True when no fingerprint has been recorded yet (a first run, or a cache from before this
+    existed) -- unknown provenance is not proof of staleness, and refusing to use a cache we have
+    no evidence against would throw away every existing model for nothing. The fingerprint is
+    written after a successful run, so the check has teeth from then on.
+    """
+    path = output_dir / f"dataset_fingerprint__{slug}.json"
+    if not path.exists():
+        return True
+    return json.loads(path.read_text()).get("fingerprint") == fingerprint
+
+
+def write_dataset_fingerprint(slug: str, fingerprint: str, output_dir: pathlib.Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / f"dataset_fingerprint__{slug}.json").write_text(
+        json.dumps({"fingerprint": fingerprint}, indent=2))
+
+
+def collect_unique_units(all_units) -> tuple[dict, dict]:
+    """Dedupe embedding work by hash, remembering every type each hash appeared under.
+
+    A unit is ``(hash, type_str, text)`` and the hash is sha256 of the *censored* text, while the
+    type is ``WPAuthorClf::{method}::full`` -- so for a paper that names none of the target
+    countries, censorship is a no-op and all three datasets produce one hash under three different
+    types. Deduping is right (embedding it three times would be three identical paid calls for one
+    vector), but a plain ``setdefault`` also discards the two type strings that lost, and since
+    DATASETS is ordered raw-first, raw always won.
+
+    That mattered because the discarded types were never *submitted*: ``get_or_generate_embedding``
+    records a type on a cache hit precisely so types accumulate, but it only ever saw one unit per
+    hash, so the accumulation had nothing to accumulate. The result was the same defect the
+    document_type array was introduced to fix, re-introduced one level above the storage layer --
+    ``get_embeddings_by_type("WPAuthorClf::naive::full")`` silently omitted every document
+    censorship left unchanged.
+
+    Training was never affected: ``assemble_xy`` fetches by hash and ignores types entirely. What
+    was affected is everything that *enumerates* by type, such as ``export_document_embeddings``.
+
+    Returns ``(unique_units, seen_types)``; pass both to ``register_dropped_types`` after embedding.
+    """
+    unique_units: dict[str, tuple] = {}
+    seen_types: dict[str, set[str]] = {}
+    for unit in all_units:
+        digest, type_str, _text = unit
+        unique_units.setdefault(digest, unit)
+        seen_types.setdefault(digest, set()).add(type_str)
+    return unique_units, seen_types
+
+
+def register_dropped_types(unique_units: dict, seen_types: dict) -> int:
+    """Record the dataset types that deduping discarded.
+
+    Must run *after* the embedding pass: ``add_document_type`` tags an existing row and does
+    nothing when there is none.
+
+    Returns the number of (hash, type) pairs tagged -- pairs, not *newly added* types.
+    ``add_document_type`` reports whether the row existed, not whether the type was new to it, and
+    the tagging is idempotent, so a rerun tags the same pairs again and returns the same count.
+    Distinguishing the two would cost a query per pair for a number that only feeds a log line.
+    """
+    added = 0
+    for digest, types in seen_types.items():
+        embedded_as = unique_units[digest][1]
+        for type_str in sorted(types - {embedded_as}):
+            if add_document_type(digest, type_str):
+                added += 1
+    return added
 
 
 def assemble_xy(hash_labels: list[tuple]) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -462,16 +590,23 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
 
     # Collect every chunk across all datasets (train + val + test), dedupe, embed once.
     print("Chunking + collecting embedding work...")
-    unique_units: dict[str, tuple] = {}
+    all_units: list[tuple] = []
     plans: dict[tuple, list] = {}
     for slug, method in DATASETS:
         for split_name, recs in (("train", train), ("val", val), ("test", test)):
             embed_units, hash_labels = dataset_units(recs, method)
-            for unit in embed_units:
-                unique_units.setdefault(unit[0], unit)
+            all_units.extend(embed_units)
             plans[(slug, split_name)] = hash_labels
+    unique_units, seen_types = collect_unique_units(all_units)
     print(f"Embedding {len(unique_units)} unique chunks (cached ones are skipped)...")
     embed_document_set(list(unique_units.values()))
+
+    # Chunks shared between datasets (censorship was a no-op) were embedded under whichever
+    # dataset's type came first; tag them with the others now that the rows exist, or those
+    # datasets are unenumerable by their own type. See collect_unique_units.
+    added = register_dropped_types(unique_units, seen_types)
+    if added:
+        print(f"  tagged {added} shared chunk/type pair(s) that deduping would otherwise have lost")
 
     # Guard: every fragment must be embedded before training, so a partial cache can't silently
     # shrink a dataset (assemble_xy would otherwise drop the missing rows).
@@ -487,13 +622,24 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
     # either way. Saved models are reused as-is on rerun.
     results = []
     for slug, method in DATASETS:
-        X_train, Y_train, _ = assemble_xy(plans[(slug, "train")])
+        # train_stems groups the rows by source document for the inner CV -- see inner_cv().
+        X_train, Y_train, train_stems = assemble_xy(plans[(slug, "train")])
         X_val, Y_val, _ = assemble_xy(plans[(slug, "val")])
         X_test, Y_test, test_stems = assemble_xy(plans[(slug, "test")])
         print(f"\nDataset {slug}: train {X_train.shape}, val {X_val.shape}, test {X_test.shape}")
 
+        # Cached hyperparameters and models are keyed on the slug, which says nothing about the
+        # data. Check they were produced from this exact dataset before trusting them; if not,
+        # ignore them and retrain rather than silently reporting numbers from the old corpus.
+        fingerprint = dataset_fingerprint(plans[(slug, "train")], plans[(slug, "val")],
+                                          plans[(slug, "test")])
+        reusable = cached_artefacts_are_current(slug, fingerprint, OUTPUT_DIR)
+        if not reusable:
+            print(f"  !! {slug} changed since its cached models were built — re-searching "
+                  f"hyperparameters and refitting instead of reusing them.")
+
         hp_path = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
-        if hp_path.exists():
+        if hp_path.exists() and reusable:
             print(f"  loading cached hyperparameters from {hp_path.name} (skipping search)")
             best_params = json.loads(hp_path.read_text())
         else:
@@ -503,13 +649,13 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
             for name in MODEL_NAMES:
                 print(f"    searching {name}...")
                 search = make_search(name, pca_dims)
-                search.fit(X_train, Y_train)
+                search.fit(X_train, Y_train, groups=train_stems)
                 best_params[name] = {k: _sanitise(v) for k, v in search.best_params_.items()}
             hp_path.write_text(json.dumps(best_params, indent=2))
 
         for name in MODEL_NAMES:
             pickle_path = OUTPUT_DIR / f"{model_slug(name)}__{slug}.pickle"
-            if pickle_path.exists():
+            if pickle_path.exists() and reusable:
                 with open(pickle_path, "rb") as f:
                     model = pickle.load(f)
             else:
@@ -523,6 +669,10 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
             pred_path = write_test_predictions(model, name, slug, X_test, Y_test, test_stems)
             print(f"  {name:20s} loss={metrics['loss']:.4f} exact={metrics['exact']:.4f}"
                   f"  test predictions -> {pred_path.name}")
+
+        # Written only once every model for this dataset is fitted and persisted, so an interrupted
+        # run leaves no fingerprint vouching for a cache that is only half there.
+        write_dataset_fingerprint(slug, fingerprint, OUTPUT_DIR)
 
     baseline_avg, baseline_per_class = random_guess_baseline(val)
     write_report(results, baseline_avg, baseline_per_class)
@@ -585,4 +735,5 @@ def main():
 
 
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

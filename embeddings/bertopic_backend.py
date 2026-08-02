@@ -51,6 +51,10 @@ from bertopic.backend import BaseEmbedder
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer
 
 import embeddings.document_embeddings as document_embeddings
+# Lives with the embeddings it pools -- DocumentTextGetter needs it too, and cannot import from
+# here (this module imports that one). Re-exported so `from embeddings.bertopic_backend import
+# mean_pool` keeps working for the callers that already reach for it alongside bertopic_umap.
+from embeddings.document_embeddings import mean_pool
 
 REPRESENTATION_TYPE = "BERTopicRepr"
 
@@ -114,18 +118,6 @@ def segment_keys(text: str) -> list[str]:
         hashlib.sha256(segment.encode()).hexdigest()
         for segment in document_embeddings.split_long_document(text)
     ]
-
-
-def mean_pool(vectors) -> np.ndarray:
-    """Combine a document's segment embeddings into one unit-norm vector.
-
-    Inputs are unit-norm, so a plain mean shrinks toward the origin as segments
-    disagree; re-normalising keeps every document comparable regardless of how
-    many segments it was split into.
-    """
-    pooled = np.mean(np.asarray(vectors, dtype="float32"), axis=0)
-    norm = np.linalg.norm(pooled)
-    return pooled if norm == 0 else pooled / norm
 
 
 def _lookup_many(keys: list[str], model_uuid: str) -> dict[str, list[float]]:

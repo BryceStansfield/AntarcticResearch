@@ -12,6 +12,13 @@ Note the country directions are not mutually orthogonal (UK and US in particular
 cosine ~0.36), so we orthonormalise the *span* via SVD rather than treating each direction
 independently — projecting out the subspace handles the overlap correctly and removes exactly one
 shared axis for the UK/US pair instead of double-counting it.
+
+The span is (n_countries - 1)-dimensional, not n_countries: the probe centres each document's
+per-country shift across countries, so the directions sum to zero. See ``DEFAULT_TOL``.
+
+Note ``project`` does **not** re-normalise. Removing a component genuinely shortens a vector, so
+projected embeddings are no longer unit-norm — consumers that treat a dot product as a cosine
+(``measure_wp_latency`` does) must normalise themselves when running on orthogonalised vectors.
 """
 import pathlib
 
@@ -21,7 +28,24 @@ import numpy as np
 class CountrySignalProjector:
     """Orthogonal projector that removes the direct country-signal subspace from embeddings."""
 
-    def __init__(self, directions: np.ndarray, tol: float = 1e-8):
+    # Relative singular-value floor for deciding which directions are real.
+    #
+    # The country directions are rank-deficient *by construction*, not by accident. The probe builds
+    # them as ``country = delta - delta.mean(axis=1)`` -- centred across countries -- so the C
+    # vectors sum to zero and span exactly C-1 dimensions. Normalising each to unit length
+    # afterwards does not change that: scaling individual vectors never changes their span.
+    #
+    # So the C-th singular value should be zero, and what is actually there is float32 round-off:
+    # the probe accumulates in float32 (eps 1.19e-7), and the residual measures ~5e-7 relative.
+    # The previous 1e-8 was a sensible float64 threshold applied to float32-derived data, so it
+    # kept that noise and reported rank C where the subspace is C-1 -- projecting out one extra,
+    # essentially arbitrary direction and misreporting the rank downstream.
+    #
+    # The value is not delicate. Real axes sit at s/s[0] ~ 0.97 and the residual at ~5e-7, six
+    # orders of magnitude apart, so anything from ~1e-6 to ~1e-2 selects the same basis.
+    DEFAULT_TOL = 1e-5
+
+    def __init__(self, directions: np.ndarray, tol: float = DEFAULT_TOL):
         """directions: (n_countries, dim) — the per-country mean direct-signal directions (any scale)."""
         self.basis = self._orthonormal_basis(np.asarray(directions, dtype=np.float64), tol)  # (rank, dim)
         self.rank = int(self.basis.shape[0])

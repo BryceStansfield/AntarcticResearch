@@ -16,8 +16,14 @@ misleading curve.
 Both figures share one lag axis, capped just above the bulk of the data
 (``AXIS_PERCENTILE``) so the boxes are legible rather than crushed against a
 scale stretched by a few extreme lags; the rare points above the cap fall outside
-the view. The per-box count printed above each box says how many instruments it
-rests on.
+the view.
+
+Every number here is over *matched* instruments only, and the match rate is not
+uniform -- across the typed instruments these figures plot it runs from 47.0% in
+the 2000s to 96.2% in the 1970s, so the panels censor the decades by very
+different amounts. Both the panel titles and the per-box labels therefore print
+``matched/total`` rather than a bare count, so a sparse box reads as an unmatched
+decade rather than a quiet one.
 
 The lags come from ``measure_wp_latency.match_instruments`` -- the earliest
 preceding working paper above ``SIMILARITY_THRESHOLD`` -- so, like everything in
@@ -64,19 +70,32 @@ INK_MUTED = "#52514e"
 GRID = "#d9d9d6"
 
 
-def matched_lags():
-    """Every matched instrument's lag, with its type and decade.
+def instrument_lags():
+    """Every instrument, matched or not, with its type and decade.
 
     Loads once and matches over *all* instruments (no type filter) -- the panels
     are the type breakdown, so the matching must not pre-select a type.
+
+    The unmatched rows are kept rather than dropped here because they are what
+    makes a count interpretable. A lag only exists for an instrument that found a
+    preceding working paper above the threshold, and the match rate varies by a
+    factor of two across the decades (50.6% in the 1990s against 94.5% in the
+    1970s), so every panel censors its decade by a different amount. Reporting
+    only the matched count invites reading it as the decade's instrument count,
+    which silently hides that censoring; ``match_rate`` below carries the
+    denominator into the titles and the box labels.
     """
     measures = load_measures()
     working_papers = load_working_papers()
-    rows = match_instruments(measures, working_papers)
-    matched = rows[rows["matched"]].copy()
-    matched["decade"] = (matched["instrument_year"] // 10 * 10).astype(int)
+    rows = match_instruments(measures, working_papers).copy()
+    rows["decade"] = (rows["instrument_year"] // 10 * 10).astype(int)
     # Untyped is dropped folder-wide from these figures.
-    return matched[matched["instrument_type"].isin(TYPE_COLOR)].copy()
+    return rows[rows["instrument_type"].isin(TYPE_COLOR)].copy()
+
+
+def match_rate(rows) -> tuple[int, int]:
+    """``(matched, total)`` over a set of instruments."""
+    return int(rows["matched"].sum()), int(len(rows))
 
 
 def _draw_box(ax, values: np.ndarray, position: int, color: str) -> None:
@@ -110,9 +129,13 @@ def _style_panel(ax, title: str, n_positions: int, ymax: float) -> None:
     ax.set_ylim(0, ymax)
 
 
-def _count_label(ax, position: int, n: int) -> None:
-    """Print a box's sample size just under the top of the panel."""
-    ax.text(position, 0.98, str(n), transform=ax.get_xaxis_transform(),
+def _count_label(ax, position: int, matched: int, total: int) -> None:
+    """Print a box's sample size, over the instruments it could have come from.
+
+    ``matched/total`` rather than a bare count: the box rests on the matched
+    instruments alone, and the difference is the cell's silent censoring.
+    """
+    ax.text(position, 0.98, f"{matched}/{total}", transform=ax.get_xaxis_transform(),
             ha="center", va="top", fontsize=7, color=INK_MUTED)
 
 
@@ -134,9 +157,10 @@ def _finish(fig, axes, all_axes, n_visible, handles, suptitle, path):
     plt.close(fig)
 
 
-def plot_box_by_decade(matched, path: pathlib.Path) -> int:
+def plot_box_by_decade(rows, path: pathlib.Path) -> int:
     """One panel per decade; one box-and-whisker per instrument type within each."""
-    decades = sorted(matched["decade"].unique())
+    matched = rows[rows["matched"]]
+    decades = sorted(rows["decade"].unique())
     if not decades:
         return 0
     types = list(TYPE_COLOR)
@@ -150,16 +174,18 @@ def plot_box_by_decade(matched, path: pathlib.Path) -> int:
 
     drawn = 0
     for ax, decade in zip(all_axes, decades):
-        panel = matched[matched["decade"] == decade]
+        panel = rows[rows["decade"] == decade]
         for pos, instrument_type in enumerate(types, start=1):
-            vals = panel.loc[panel["instrument_type"] == instrument_type,
-                             "latency_years"].to_numpy(dtype=float)
+            cell = panel[panel["instrument_type"] == instrument_type]
+            vals = cell.loc[cell["matched"], "latency_years"].to_numpy(dtype=float)
             if len(vals) < MIN_FOR_BOX:
                 continue
             _draw_box(ax, vals, pos, TYPE_COLOR[instrument_type])
-            _count_label(ax, pos, len(vals))
+            _count_label(ax, pos, len(vals), len(cell))
             drawn += 1
-        _style_panel(ax, f"{decade}s  (n={len(panel)})", len(types), ymax)
+        n_matched, n_total = match_rate(panel)
+        _style_panel(ax, f"{decade}s  ({n_matched}/{n_total} matched, "
+                         f"{n_matched / n_total:.0%})", len(types), ymax)
 
     handles = [Patch(facecolor=to_rgba(c, 0.35), edgecolor=c, label=t)
                for t, c in TYPE_COLOR.items()]
@@ -168,9 +194,10 @@ def plot_box_by_decade(matched, path: pathlib.Path) -> int:
     return drawn
 
 
-def plot_box_by_type(matched, path: pathlib.Path) -> int:
+def plot_box_by_type(rows, path: pathlib.Path) -> int:
     """One panel per instrument type; one box-and-whisker per decade within each."""
-    decades = sorted(matched["decade"].unique())
+    matched = rows[rows["matched"]]
+    decades = sorted(rows["decade"].unique())
     if not decades:
         return 0
     types = list(TYPE_COLOR)
@@ -191,16 +218,18 @@ def plot_box_by_type(matched, path: pathlib.Path) -> int:
 
     drawn = 0
     for ax, instrument_type in zip(all_axes, types):
-        panel = matched[matched["instrument_type"] == instrument_type]
+        panel = rows[rows["instrument_type"] == instrument_type]
         for pos, decade in enumerate(decades, start=1):
-            vals = panel.loc[panel["decade"] == decade,
-                             "latency_years"].to_numpy(dtype=float)
+            cell = panel[panel["decade"] == decade]
+            vals = cell.loc[cell["matched"], "latency_years"].to_numpy(dtype=float)
             if len(vals) < MIN_FOR_BOX:
                 continue
             _draw_box(ax, vals, pos, decade_color[decade])
-            _count_label(ax, pos, len(vals))
+            _count_label(ax, pos, len(vals), len(cell))
             drawn += 1
-        _style_panel(ax, f"{instrument_type}  (n={len(panel)})", len(decades), ymax)
+        n_matched, n_total = match_rate(panel)
+        _style_panel(ax, f"{instrument_type}  ({n_matched}/{n_total} matched, "
+                         f"{n_matched / n_total:.0%})", len(decades), ymax)
 
     handles = [Patch(facecolor=to_rgba(decade_color[d], 0.55),
                      edgecolor=decade_color[d], label=f"{d}s") for d in decades]
@@ -213,21 +242,32 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading cached embeddings and matching instruments...")
-    matched = matched_lags()
-    print(f"  {len(matched)} matched instruments across "
-          f"{matched['decade'].nunique()} decades")
+    rows = instrument_lags()
+    n_matched, n_total = match_rate(rows)
+    print(f"  {n_matched}/{n_total} instruments matched ({n_matched / n_total:.1%}) across "
+          f"{rows['decade'].nunique()} decades")
+
+    print("\nmatch rate by decade:")
+    by_decade = rows.groupby("decade")["matched"].agg(["sum", "size"])
+    by_decade.columns = ["matched", "instruments"]
+    by_decade["rate"] = (by_decade["matched"] / by_decade["instruments"]).map("{:.1%}".format)
+    print(by_decade.to_string())
 
     print("\nmatched instruments by decade x type:")
-    table = (matched.pivot_table(index="decade", columns="instrument_type",
-                                 values="latency_years", aggfunc="size", fill_value=0))
+    table = (rows[rows["matched"]]
+             .pivot_table(index="decade", columns="instrument_type",
+                          values="latency_years", aggfunc="size", fill_value=0))
     print(table.to_string())
 
-    n_by_decade = plot_box_by_decade(matched, OUTPUT_DIR / "lag_box_by_decade.png")
-    n_by_type = plot_box_by_type(matched, OUTPUT_DIR / "lag_box_by_type.png")
+    n_by_decade = plot_box_by_decade(rows, OUTPUT_DIR / "lag_box_by_decade.png")
+    n_by_type = plot_box_by_type(rows, OUTPUT_DIR / "lag_box_by_type.png")
     print(f"\n{n_by_decade} boxes in the by-decade figure, {n_by_type} in the by-type "
           f"figure (>= {MIN_FOR_BOX} matches per box)")
     print(f"Written to {OUTPUT_DIR}/")
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()

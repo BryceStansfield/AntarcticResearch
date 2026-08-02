@@ -319,5 +319,8 @@ def main() -> None:
         report("Measures", path, counts)
 
 
+from utils import line_buffer_stdout
+
 if __name__ == "__main__":
+    line_buffer_stdout()
     main()
