@@ -8,3 +8,4 @@
 !*.pdf
 !*.pdf.ocr.txt
 !download.complete
+!pdf_to_atcm.json
