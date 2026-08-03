@@ -11,6 +11,8 @@ one side reads as a model that simply performed differently.
 """
 import pathlib
 
+import datetime
+
 import pytest
 
 from working_paper_authorship import authorship_performance_figures as figs
@@ -55,7 +57,20 @@ def test_comparison_figure_names_both_source_reports(tmp_path):
     subtitle = captured["censorship_vs_orthogonal.png"]
     assert "report.txt" in subtitle and "orthogonal.txt" in subtitle
     assert "two separate runs" in subtitle
-    assert figs._written_at(full) in subtitle
+    assert figs._source_label(full) in subtitle
+    assert figs._source_label(orth) in subtitle
+
+
+def test_the_source_label_names_the_directory_not_just_the_file(tmp_path):
+    """In real use both runs write a file called `report.txt`, one under
+    author_classification_models/ and one under author_classification_models_orthogonal/ — so a
+    caption naming only the filename identifies neither series."""
+    run_dir = tmp_path / "author_classification_models_orthogonal"
+    run_dir.mkdir()
+    label = figs._source_label(_report(run_dir / "report.txt"))
+
+    assert "author_classification_models_orthogonal/report.txt" in label
+    assert str(datetime.date.today()) in label, "the date says whether the two runs are contemporaneous"
 
 
 def test_differing_model_sets_are_refused(tmp_path):

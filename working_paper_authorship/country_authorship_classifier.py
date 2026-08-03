@@ -775,7 +775,7 @@ def write_report(results: list[dict], baseline_avg: float, baseline_per_class: l
     report = "\n".join(lines)
     (OUTPUT_DIR / "report.txt").write_text(report)
     print("\n" + report)
-    print(f"\nWrote report + {len(results)} models + per-dataset hyperparameters to {OUTPUT_DIR}/")
+    print(f"\nWrote report + {len(results)} models + shared hyperparameters to {OUTPUT_DIR}/")
     print(f"Wrote {len(results)} test-set prediction CSVs to {PREDICTIONS_DIR}/")
 
 

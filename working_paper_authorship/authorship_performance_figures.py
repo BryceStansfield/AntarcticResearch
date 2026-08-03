@@ -146,9 +146,14 @@ def render(bars: list[dict], baseline: float, title: str, subtitle: str, path: p
     return path
 
 
-def _written_at(path: pathlib.Path) -> str:
-    """When a report was last written, for captioning which run a series came from."""
-    return datetime.date.fromtimestamp(path.stat().st_mtime).isoformat()
+def _source_label(path: pathlib.Path) -> str:
+    """Which run a series came from, for the caption.
+
+    Names the containing directory rather than the file: both runs write a "report.txt", so the
+    filename alone identifies neither. The date says whether the two were produced together.
+    """
+    written = datetime.date.fromtimestamp(path.stat().st_mtime).isoformat()
+    return f"{path.parent.name}/{path.name} ({written})"
 
 
 def _check_comparable(full_series: list[dict], orth_series: list[dict],
@@ -213,8 +218,8 @@ def render_all_figures(full_report: pathlib.Path = FULL_REPORT,
             baseline,
             "Censorship methods vs. orthogonal decomposition of the country signal",
             "Validation set; ranked by binary cross-entropy.\n"
-            f"Solid bars from {full_report.name} ({_written_at(full_report)}); hatched from "
-            f"{orthogonal_report.name} ({_written_at(orthogonal_report)}) — two separate runs.",
+            f"Solid bars from {_source_label(full_report)}; hatched from "
+            f"{_source_label(orthogonal_report)} — two separate runs.",
             figures_dir / "censorship_vs_orthogonal.png"))
     else:
         print(f"No orthogonal report at {orthogonal_report} — skipping the comparison figure "

@@ -4,7 +4,8 @@ A document's uuid is the sha256 of its text, so pipelines that emit byte-identic
 row. `document_type` is therefore a JSON array and types accumulate; the single-valued column it
 replaced let whichever pipeline embedded the text first claim the row, and every other type's
 enumeration silently missed it. These tests pin that accumulation, the ordering guarantee that
-keeps UMAP input stable, and the tolerance for not-yet-migrated scalar cells.
+keeps UMAP input stable, and the tolerance for pre-array scalar cells (the one-off migration
+script that produced them has been deleted, but old databases can still hold them).
 
 Every test runs against a throwaway sqlite file, and the one test that touches `generate_embedding`
 stubs the OpenRouter client, so nothing here makes a paid call.
@@ -18,7 +19,6 @@ from types import SimpleNamespace
 import pytest
 
 import embeddings.document_embeddings as de
-import embeddings.migrate_document_type_array as mig
 
 MODEL = de.DEFAULT_EMBEDDING_MODEL
 OTHER_MODEL = "some/other-embedder"
@@ -26,10 +26,9 @@ OTHER_MODEL = "some/other-embedder"
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    """Point the store (and the migration, which imported the path by value) at a temp database."""
+    """Point the store at a throwaway database."""
     path = tmp_path / "embeddings.sqlite3"
     monkeypatch.setattr(de, "EMBEDDINGS_DB_PATH", path)
-    monkeypatch.setattr(mig, "EMBEDDINGS_DB_PATH", path)
     de.get_connection().close()  # create the schema
     return path
 
@@ -237,50 +236,6 @@ def test_generate_embedding_merges_into_an_existing_row_and_keeps_its_vector(db,
     assert de.get_embedding("h1") == [0.5, 0.25], "existing vector must not be overwritten"
 
 
-# --------------------------------------------------------------------------------- migration
-
-def test_migration_wraps_scalar_cells_in_an_array(db, capsys):
-    _insert(db, "h1", "WorkingPaper")
-    mig.migrate(apply=True, expected={"h1": {"WorkingPaper"}})
-    assert json.loads(_stored_types(db, "h1")) == ["WorkingPaper"]
-
-
-def test_migration_merges_a_corpus_type_the_row_was_missing(db):
-    """A no-op-censored paper: one row, but it is both the raw and the censored working paper."""
-    _insert(db, "h1", "WorkingPaper")
-    mig.migrate(apply=True, expected={"h1": {"WorkingPaper", "CensoredWorkingPaperV1"}})
-    assert de.get_document_types("h1") == ["CensoredWorkingPaperV1", "WorkingPaper"]
-
-
-def test_migration_strips_a_corpus_type_no_source_file_produces(db):
-    """The attachment case: files under neither /wp/ nor /ip/ were filed as WorkingPaper."""
-    _insert(db, "attachment", '["WorkingPaper"]')
-    mig.migrate(apply=True, expected={})
-    assert de.get_document_types("attachment") == []
-
-
-def test_migration_leaves_non_corpus_types_alone(db):
-    """It only recomputes the corpus types, so experiment types must survive untouched."""
-    _insert(db, "h1", '["WPAuthorClf::raw::full","WorkingPaper"]')
-    mig.migrate(apply=True, expected={})
-    assert de.get_document_types("h1") == ["WPAuthorClf::raw::full"]
-
-
-def test_migration_dry_run_writes_nothing(db):
-    _insert(db, "h1", "WorkingPaper")
-    mig.migrate(apply=False, expected={"h1": {"WorkingPaper", "CensoredWorkingPaperV1"}})
-    assert _stored_types(db, "h1") == "WorkingPaper"
-
-
-def test_migration_is_idempotent(db):
-    _insert(db, "h1", "WorkingPaper")
-    expected = {"h1": {"WorkingPaper", "CensoredWorkingPaperV1"}}
-    mig.migrate(apply=True, expected=expected)
-    first = _stored_types(db, "h1")
-    mig.migrate(apply=True, expected=expected)
-    assert _stored_types(db, "h1") == first
-
-
 # ------------------------------------------------------- building the database from scratch
 
 def test_from_scratch_build_gives_a_no_op_censored_paper_both_types(db, monkeypatch):
@@ -329,13 +284,6 @@ def test_a_later_experiment_type_attaches_to_an_existing_corpus_row(db, monkeypa
 
     (uuid,) = {u for u, _ in de.get_embeddings_by_type("WorkingPaper")}
     assert de.get_document_types(uuid) == ["WPAuthorClf::raw::full", "WorkingPaper"]
-
-
-def test_migration_ignores_expected_hashes_that_are_not_embedded_yet(db):
-    """The censorship fix changed what censor_text emits, so many expected hashes have no row yet.
-    Those must be skipped, not invented."""
-    mig.migrate(apply=True, expected={"never_embedded": {"CensoredWorkingPaperV1"}})
-    assert de.get_embedding("never_embedded") is None
 
 
 # --------------------------------------------------------------- empty documents are not embedded

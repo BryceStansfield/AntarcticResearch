@@ -1,6 +1,6 @@
-"""Where do the not-yet-effective measures sit in the Qwen embedding space, relative to WPs?
+"""Where do ATCM instruments sit in the Qwen embedding space, relative to working papers?
 
-Motivated by the failure of the working-paper authorship classifiers to predict measure authorship
+Motivated by the failure of the working-paper authorship classifiers to predict instrument authorship
 — every model scored far worse than its no-skill baseline (BCE 1.46-2.01 against a 0.30 base-rate
 floor), and a topic-conditioned prior over subject matter alone did no better (AUC 0.41, p = 0.39).
 Is that failure because the measures land in an unseen region of the embedding space (an
@@ -11,18 +11,21 @@ The two modules that produced those numbers (``not_effective_measure_authorship.
 ``topic_prior_authorship.py``) have since been deleted — the negative result held up and there was
 no reason to keep re-running them.
 
-To tell those apart we compare three cosine-distance distributions over whole-document raw
+To tell those apart we compare three cosine-distance distributions over whole-document
 embeddings (same Qwen embedder for both classes):
-  1) WP - WP           — spread within the working-paper corpus
-  2) measure - measure  — spread within the 52 not-yet-effective measures
-  3) WP - measure      — how far measures sit from working papers
-plus, per measure, the distance to its *nearest* working paper — the sharpest test of whether
-measures have close WP neighbours or float off on their own.
+  1) WP - WP            — spread within the working-paper corpus
+  2) measure - measure  — spread within the ATCM instrument corpus
+  3) WP - measure       — how far instruments sit from working papers
+plus, per instrument, the distance to its *nearest* working paper — the sharpest test of whether
+instruments have close WP neighbours or float off on their own.
 
-Like the other adhoc analyses this reads the Qwen vectors already cached in
-``data/document_embeddings.sqlite3`` and never touches the network. WP vectors come from the cached
-``WorkingPaper`` type; measure vectors are pulled by recomputing each measure's exact segment hash
-(the uncensored ``Content``), so we score exactly the 52 measures the classifier predicted on.
+Both sides are read from vectors ``embed_all_documents`` has already cached — the ``WorkingPaper``
+and ``measure`` types — so this never touches the network.
+
+It used to run over the 52 rows of ``Not-Effective measures.csv`` instead, matching the exact set
+the deleted authorship classifier was scored on. With that classifier gone the subset was
+inherited rather than chosen, and it was a poor population regardless: only 3 of the 52 were
+genuinely "Not yet effective". All 52 are inside this corpus. (Old method: git history.)
 
 Outputs (to ``adhoc_analyses/output/``):
   * ``measure_wp_geometry_report.txt``   — the distribution summary + interpretation-ready numbers
@@ -38,13 +41,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from embeddings.document_embeddings import (
-    DocumentTextGetter, get_embedding, get_wp_ip_embedding_args,
-)
+from embeddings.document_embeddings import DocumentTextGetter
 
 OUTPUT_DIR = pathlib.Path("adhoc_analyses/output")
-MEASURES_CSV = pathlib.Path("data/Not-Effective measures.csv")
 WP_EMBEDDING_TYPE = "WorkingPaper"
+# Every ATCM instrument (Measure/Recommendation/Resolution/Decision) is stored under this one
+# type by embed_all_documents.
+MEASURE_EMBEDDING_TYPE = "measure"
 MAX_WITHIN_WP_PAIRS = 400_000  # subsample the ~3.2M WP-WP pairs; the distribution is stable well below this
 RANDOM_SEED = 0
 
@@ -70,27 +73,27 @@ def load_wp_vectors() -> np.ndarray:
 
 
 def load_measure_vectors() -> np.ndarray:
-    """The 52 measures' whole-document raw embeddings, fetched by recomputing their segment hashes.
+    """Every embedded ATCM instrument's whole-document embedding, one vector per instrument.
 
-    Uses the same hashing the classifier used (``get_wp_ip_embedding_args`` over the raw ``Content``),
-    so these are exactly the vectors that were fed to the authorship models. Any measure whose
-    embedding is missing from the cache is skipped with a warning rather than silently zero-filled."""
-    df = pd.read_csv(MEASURES_CSV)
-    vectors, missing = [], 0
-    for row in df.itertuples():
-        content = getattr(row, "Content", None)
-        if pd.isna(content) or not str(content).strip():
-            continue
-        for h, _t, _seg in get_wp_ip_embedding_args(str(content), "measure_geometry"):
-            embedding = get_embedding(h)
-            if embedding is None:
-                missing += 1
-                continue
-            vectors.append(embedding)
-    if missing:
-        print(f"  warning: {missing} measure segment(s) had no cached embedding and were skipped "
-              f"(run the measure embedding step first).")
-    return unit_rows(np.asarray(vectors, dtype=np.float64))
+    The whole corpus, not a subset. This used to read the 52 rows of ``Not-Effective measures.csv``,
+    which was the right population when the module existed to explain why the authorship classifier
+    failed on exactly those 52 -- the geometry had to speak to that specific failure. That
+    classifier has been deleted, so the subset became inherited rather than chosen, and it was never
+    a coherent category anyway: only 3 of the 52 were "Not yet effective", the other 49 having been
+    withdrawn, spent, terminated or superseded.
+
+    All 52 were a subset of this corpus, so nothing is lost and the sample grows about sixteenfold,
+    at no embedding cost -- these are already cached under the ``measure`` type. The vectors are the
+    Subject+Content representation the rest of the pipeline uses, rather than the raw ``Content``
+    the deleted classifier was fed.
+    """
+    documents = DocumentTextGetter().get_all_of_type(MEASURE_EMBEDDING_TYPE, with_embeddings=True)
+    if not documents:
+        raise RuntimeError(
+            f"No '{MEASURE_EMBEDDING_TYPE}' embeddings are cached — run embed_all_documents first. "
+            f"Refusing to report distributions computed over nothing."
+        )
+    return unit_rows(np.asarray([d["embedding"] for d in documents], dtype=np.float64))
 
 
 def within_distances(mat: np.ndarray, rng: np.random.Generator, max_pairs: int) -> np.ndarray:

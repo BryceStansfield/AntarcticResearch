@@ -151,14 +151,27 @@ def max_overlap(x: np.ndarray, y: np.ndarray, radii: np.ndarray) -> float:
 
 
 def pack_to_fit(radii: np.ndarray, width: int, height: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Pack, shrinking every radius uniformly until nothing overlaps. Returns (x, y, radii)."""
-    for attempt in range(MAX_PACKING_ATTEMPTS):
+    """Pack, shrinking every radius uniformly until nothing overlaps. Returns (x, y, radii).
+
+    The returned radii are always the ones the returned coordinates were packed for. Shrinking at
+    the end of the loop body and then falling out of it returned radii one shrink-step smaller than
+    the layout they belonged to, so the exhausted-attempts path drew every circle smaller than the
+    space reserved for it -- and reported a warning it had never actually tested, since the final
+    size was never re-packed or re-checked. Both are fixed by packing once more after the loop.
+    """
+    for _attempt in range(MAX_PACKING_ATTEMPTS):
         x, y = pack(radii, width, height)
         if max_overlap(x, y, radii) <= OVERLAP_TOLERANCE:
             return x, y, radii
         radii = radii * RETRY_SHRINK
-    print(f"Warning: {max_overlap(x, y, radii):.2f}px of overlap remains after "
-          f"{MAX_PACKING_ATTEMPTS} packing attempts — lower AREA_FILL.")
+
+    # Attempts exhausted: pack at the final, smallest size so the result is self-consistent, and
+    # only warn if that layout genuinely still overlaps.
+    x, y = pack(radii, width, height)
+    remaining = max_overlap(x, y, radii)
+    if remaining > OVERLAP_TOLERANCE:
+        print(f"Warning: {remaining:.2f}px of overlap remains after "
+              f"{MAX_PACKING_ATTEMPTS} packing attempts — lower AREA_FILL.")
     return x, y, radii
 
 

@@ -57,15 +57,19 @@ def load_measures() -> list[dict]:
         measure_id = int(uuid.removeprefix("MEASURE__"))
         representation = getter.get_measure_representation(measure_id)
         row = corpus.loc[measure_id]
+        # ~41 embedded instruments carry no Type in the scraped corpus (rules of
+        # procedure, consultative-party recognitions, CCAS documents). They are
+        # real instruments, so they stay in, tagged "Untyped" rather than
+        # silently dropping out of the type counts. Resolved once and used for
+        # the label too: interpolating the raw cell rendered a missing Type as
+        # the literal string "nan", so those instruments appeared on every
+        # figure that shows a label as "nan 123".
+        instrument_type = "Untyped" if pd.isna(row["Type"]) else row["Type"]
         docs.append(
             {
                 "uuid": uuid,
                 "doc_class": "Instrument",
-                # ~41 embedded instruments carry no Type in the scraped corpus
-                # (rules of procedure, consultative-party recognitions, CCAS
-                # documents). They are real instruments, so they stay in, tagged
-                # "Untyped" rather than silently dropping out of the type counts.
-                "instrument_type": "Untyped" if pd.isna(row["Type"]) else row["Type"],
+                "instrument_type": instrument_type,
                 "text": representation["text"],
                 # ATCM_Year (the meeting that passed it) is the comparable
                 # anchor to a working paper's meeting_year. Adoption_Year is
@@ -74,7 +78,7 @@ def load_measures() -> list[dict]:
                 "year": row["ATCM_Year"],
                 "adoption_year": row["Adoption_Year"],
                 "embedding": np.asarray(embedding, dtype="float32"),
-                "label": f"{row['Type']} {measure_id}",
+                "label": f"{instrument_type} {measure_id}",
             }
         )
     return docs
