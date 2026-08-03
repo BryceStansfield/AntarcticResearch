@@ -8,8 +8,8 @@ should hold up on the WP validation set only insofar as authorship is topic-corr
 
 This trains, for each whole-document dataset (raw / naive / llm_censorship) and each model, a family
 of pipelines with PCA fixed to {2, 4, 8} components. Every other hyperparameter is held at that
-dataset's already-tuned value (from best_hyperparameters__*.json) so the ONLY thing varying is the
-PCA width. It then reports validation-set performance (WP held-out val) side by side with the
+benchmark's already-tuned value (the shared best_hyperparameters.json) so the ONLY thing varying
+is the PCA width. It then reports validation-set performance (WP held-out val) side by side with the
 existing full-width model.
 
 This experiment also used to score every model against the 52 not-yet-effective measures, to see
@@ -104,7 +104,7 @@ def run() -> list[dict]:
     for slug, method in DATASETS.items():
         print(f"\n=== dataset {slug} ===")
         X_train, Y_train, X_val, Y_val = prepare_dataset(method, train, val)
-        best_params = json.loads((FULL_MODELS_DIR / f"best_hyperparameters__{slug}.json").read_text())
+        best_params = cc.load_shared_hyperparameters(FULL_MODELS_DIR)
         print(f"  train {X_train.shape}, val {X_val.shape}")
 
         for name in cc.MODEL_NAMES:

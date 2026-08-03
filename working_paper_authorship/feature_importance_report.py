@@ -121,8 +121,9 @@ def build_report() -> None:
         if not trained:
             print(f"Skipping {slug}: no trained models in {cc.OUTPUT_DIR}/ — run the benchmark first.")
             continue
-        hp_path = cc.OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
-        best_params = json.loads(hp_path.read_text()) if hp_path.exists() else {}
+        hp_path = cc.OUTPUT_DIR / cc.HYPERPARAMETERS_FILENAME
+        # One shared search across datasets, so these are the same params for every slug.
+        best_params = cc.load_shared_hyperparameters(cc.OUTPUT_DIR) if hp_path.exists() else {}
 
         print(f"Rebuilding segments for {slug}...")
         # Built once over train + val: the projection pool. The validation rows used for

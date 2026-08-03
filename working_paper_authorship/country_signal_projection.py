@@ -16,9 +16,10 @@ shared axis for the UK/US pair instead of double-counting it.
 The span is (n_countries - 1)-dimensional, not n_countries: the probe centres each document's
 per-country shift across countries, so the directions sum to zero. See ``DEFAULT_TOL``.
 
-Note ``project`` does **not** re-normalise. Removing a component genuinely shortens a vector, so
-projected embeddings are no longer unit-norm — consumers that treat a dot product as a cosine
-(``measure_wp_latency`` does) must normalise themselves when running on orthogonalised vectors.
+``project`` re-normalises, so orthogonalised embeddings stay unit-norm like the ones they came
+from. Consumers treat a dot product as a cosine (``measure_wp_latency`` says so and thresholds on
+it), and the length a projection removes varies per document, so leaving it out would make
+documents with more country signal look less similar to everything for purely geometric reasons.
 """
 import pathlib
 
@@ -45,6 +46,11 @@ class CountrySignalProjector:
     # orders of magnitude apart, so anything from ~1e-6 to ~1e-2 selects the same basis.
     DEFAULT_TOL = 1e-5
 
+    # What counts as "nothing left after the projection", as a fraction of the row's original
+    # length. Sits above float32's ~1.2e-7 round-off and far below any real document's residual,
+    # which is essentially 1.0 -- a 4-dimensional subspace removed from 4096 dimensions.
+    RESIDUAL_TOL = 1e-6
+
     def __init__(self, directions: np.ndarray, tol: float = DEFAULT_TOL):
         """directions: (n_countries, dim) — the per-country mean direct-signal directions (any scale)."""
         self.basis = self._orthonormal_basis(np.asarray(directions, dtype=np.float64), tol)  # (rank, dim)
@@ -60,10 +66,39 @@ class CountrySignalProjector:
         return vt[keep]
 
     def project(self, X: np.ndarray) -> np.ndarray:
-        """Return the component of each row of X orthogonal to the country subspace: X - (X Bᵀ) B."""
+        """The component of each row of X orthogonal to the country subspace, re-normalised.
+
+        Removing a component genuinely shortens a vector, and by an amount that varies per document
+        -- a paper whose content lies largely along the country directions loses much more length
+        than one that barely touches them. Left unnormalised that becomes a magnitude artefact
+        masquerading as a semantic one: every downstream dot product against such a document is
+        systematically smaller, so it looks less similar to everything, purely because it had more
+        country signal to remove.
+
+        That matters because the consumers assume unit norm. ``measure_wp_latency`` states it
+        outright -- "Unit-norm vectors, so the dot product is the cosine similarity" -- and then
+        thresholds on that dot product at 0.85, so shortened vectors would match less often for a
+        reason that has nothing to do with content. Source embeddings arrive unit-norm, so
+        re-normalising here keeps that invariant true through the projection, exactly as
+        ``mean_pool`` does for segment pooling.
+
+        A row lying inside the subspace has nothing left to normalise and comes back as the zero
+        vector. The test for that is a *relative* tolerance, not ``norm > 0``: in float32 the
+        projection of such a row leaves round-off of order 1e-7 rather than an exact zero, and
+        dividing by that would rescale pure numerical noise into a full-length unit vector pointing
+        in an arbitrary direction -- worse than the shortened vector normalising is meant to fix.
+        Real documents are nowhere near this: removing a 4-dimensional subspace from a 4096-
+        dimensional embedding leaves essentially all of its length, so the guard only ever fires on
+        degenerate input.
+        """
         X = np.asarray(X, dtype=np.float32)
         B = self.basis.astype(np.float32)
-        return X - (X @ B.T) @ B
+        projected = X - (X @ B.T) @ B
+
+        norms = np.linalg.norm(projected, axis=-1, keepdims=True)
+        source_norms = np.linalg.norm(X, axis=-1, keepdims=True)
+        meaningful = norms > self.RESIDUAL_TOL * source_norms
+        return np.divide(projected, norms, out=np.zeros_like(projected), where=meaningful)
 
     # Sklearn-style aliases so this can also drop into a Pipeline as a transformer if wanted.
     def fit(self, X=None, y=None):

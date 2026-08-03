@@ -2,10 +2,12 @@
 
 Fetches working papers and their authors, splits deterministically at the document level,
 then builds and embeds one whole-document representation per censorship method (raw / naive /
-LLM). The classifier suite is trained on each. Hyperparameters are searched *separately* for every
-dataset (no shared search). Models, per-dataset hyperparameters and a validation report are
-written to data/author_classification_models/, and a per-(model, dataset) CSV of held-out test
-set predictions to data/test_set_predictions/.
+LLM). The classifier suite is trained on each. Hyperparameters are searched **once**, on
+SHARED_SEARCH_DATASET, and reused by every arm, so the data is the only thing differing between
+them -- a per-arm search would let a lucky configuration masquerade as a censorship effect.
+Models, the shared hyperparameters and a validation report are written to
+data/author_classification_models/, and a per-(model, dataset) CSV of held-out test set
+predictions to data/test_set_predictions/.
 
 Pass --final-test-eval to add a last stage: each dataset's best-on-validation model is refit on
 train+val (same hyperparameters, no new search) and scored once on the held-out test set, into
@@ -60,12 +62,17 @@ COUNTRIES = ["Australia", "United Kingdom", "United States", "Norway", "Chile"]
 MODEL_NAMES = ["Logistic Regression", "Random Forest", "XGBoost", "SVM"]
 
 # The datasets we benchmark, each (slug, censorship method): whole documents under every
-# censorship method. Hyperparameters are searched separately for each dataset.
+# censorship method. They share one hyperparameter search -- see SHARED_SEARCH_DATASET.
 DATASETS = [
     ("raw__full",            "raw"),
     ("naive__full",          "naive"),
     ("llm_censorship__full", "llm_censorship"),
 ]
+
+# One hyperparameter search, shared by every dataset, so the only thing differing between the
+# censorship arms is the data. Searched on this dataset -- the uncensored reference condition.
+SHARED_SEARCH_DATASET = "raw__full"
+HYPERPARAMETERS_FILENAME = "best_hyperparameters.json"
 
 DOCUMENT_SUMMARY = "data/antarctic-db/processed/document-summary.parquet"
 OUTPUT_DIR = pathlib.Path("data/author_classification_models")
@@ -309,8 +316,9 @@ def dataset_units(records: list[dict], method: str):
 def dataset_fingerprint(*hash_label_plans) -> str:
     """A content fingerprint of one dataset: its rows, their labels and which document each is from.
 
-    Every cached artefact here -- ``best_hyperparameters__{slug}.json`` and the model pickles -- is
-    keyed on the dataset *slug* alone, which names the censorship method and nothing about the data.
+    The model pickles here are keyed on the dataset *slug* alone, which names the censorship method
+    and nothing about the data. (The shared hyperparameters carry their own fingerprint, of the
+    search dataset -- see ``search_shared_hyperparameters``.)
     So a rerun after the corpus changed (a re-OCR, a re-embed, a censorship fix, a different
     train/val split) loaded hyperparameters searched on the old data and models fitted to it, and
     reported their numbers as if they described the new data. Nothing anywhere said otherwise.
@@ -348,6 +356,70 @@ def write_dataset_fingerprint(slug: str, fingerprint: str, output_dir: pathlib.P
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"dataset_fingerprint__{slug}.json").write_text(
         json.dumps({"fingerprint": fingerprint}, indent=2))
+
+
+def search_shared_hyperparameters(X_train, Y_train, train_stems, fingerprint: str,
+                                  output_dir: pathlib.Path) -> dict:
+    """Search each model's hyperparameters once, on the shared search dataset, checkpointing as it goes.
+
+    **One search for every dataset.** Previously each censorship arm searched its own, which put a
+    confound straight through the comparison the benchmark exists to make: a gap between the raw and
+    llm_censorship arms could be censorship removing signal, or it could be one arm's search having
+    landed on a luckier configuration. Holding the hyperparameters fixed leaves the data as the only
+    difference, which is exactly the argument the ``--orthogonalize-country`` run already makes for
+    reusing these same values across feature spaces.
+
+    It also costs a third as much: the two Optuna arms are 32 trials x 3 folds each, and they were
+    being paid for three times over.
+
+    The trade is that ``SHARED_SEARCH_DATASET`` gets configuration tuned for it while the others get
+    configuration tuned for a *different* arm. That is the intended direction -- the uncensored arm
+    is the reference condition, and handicapping the censored arms would flatter censorship rather
+    than the reverse -- but it is a real asymmetry, so it is named in one constant rather than left
+    implicit.
+
+    Checkpointed per model. The file is rewritten after each model's search completes, so an
+    interruption costs one model rather than the whole sweep; a rerun reloads what is there and
+    searches only what is missing. The fingerprint of the search dataset is stored alongside, so a
+    checkpoint from different data is discarded rather than half-reused.
+    """
+    path = output_dir / HYPERPARAMETERS_FILENAME
+    best_params, done = {}, {}
+    if path.exists():
+        cached = json.loads(path.read_text())
+        if cached.get("fingerprint") == fingerprint:
+            done = cached.get("params", {})
+            if done:
+                print(f"  resuming from {path.name}: {sorted(done)} already searched")
+        else:
+            print(f"  {path.name} was searched on different data — discarding it and re-searching.")
+
+    pca_dims = pca_search_dims(len(X_train), N_FEATURES)
+    print(f"  searching shared hyperparameters on {SHARED_SEARCH_DATASET} "
+          f"(n_train={len(X_train)}, pca_dims={pca_dims})...")
+
+    for name in MODEL_NAMES:
+        if name in done:
+            best_params[name] = done[name]
+            continue
+        print(f"    searching {name}...")
+        search = make_search(name, pca_dims)
+        search.fit(X_train, Y_train, groups=train_stems)
+        best_params[name] = {k: _sanitise(v) for k, v in search.best_params_.items()}
+        # Checkpoint immediately: this is the expensive step, and losing it to an interruption is
+        # what a sleeping laptop and a reboot each cost in practice.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(
+            {"search_dataset": SHARED_SEARCH_DATASET, "fingerprint": fingerprint,
+             "params": best_params}, indent=2))
+
+    return best_params
+
+
+def load_shared_hyperparameters(output_dir: pathlib.Path) -> dict:
+    """The persisted shared hyperparameters, for the downstream experiments that reuse them."""
+    path = output_dir / HYPERPARAMETERS_FILENAME
+    return json.loads(path.read_text())["params"]
 
 
 def collect_unique_units(all_units) -> tuple[dict, dict]:
@@ -508,7 +580,7 @@ def run_final_test_evaluation(results: list[dict], plans: dict, val_records: lis
         if winner is None:
             continue
         name = winner["model"]
-        best_params = json.loads((OUTPUT_DIR / f"best_hyperparameters__{slug}.json").read_text())
+        best_params = load_shared_hyperparameters(OUTPUT_DIR)
 
         X_trainval, Y_trainval, _ = assemble_xy(plans[(slug, "train")] + plans[(slug, "val")])
         X_test, Y_test, test_stems = assemble_xy(plans[(slug, "test")])
@@ -574,13 +646,13 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
         OUTPUT_DIR = ORTHOGONAL_OUTPUT_DIR
         PREDICTIONS_DIR = ORTHOGONAL_PREDICTIONS_DIR
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        # Reuse the baseline (full-space) hyperparameters instead of re-searching, so the only thing that
-        # changes between baseline and this run is the feature space — a clean A/B. Copy them across once.
-        for slug, _m in DATASETS:
-            src = baseline_dir / f"best_hyperparameters__{slug}.json"
-            dst = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
-            if src.exists() and not dst.exists():
-                dst.write_text(src.read_text())
+        # Reuse the baseline (full-space) hyperparameters instead of re-searching, so the only thing
+        # that changes between baseline and this run is the feature space — a clean A/B. One shared
+        # file now, so this is a single copy rather than one per dataset.
+        src = baseline_dir / HYPERPARAMETERS_FILENAME
+        dst = OUTPUT_DIR / HYPERPARAMETERS_FILENAME
+        if src.exists() and not dst.exists():
+            dst.write_text(src.read_text())
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading working papers + authors...")
@@ -620,6 +692,13 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
     # For every dataset, search its own hyperparameters (cached per dataset, reused on rerun),
     # then fit + persist each model with those params. Validation statistics are recomputed
     # either way. Saved models are reused as-is on rerun.
+    # One search, on the reference dataset, reused by every arm -- see search_shared_hyperparameters.
+    search_X, search_Y, search_stems = assemble_xy(plans[(SHARED_SEARCH_DATASET, "train")])
+    search_fingerprint = dataset_fingerprint(plans[(SHARED_SEARCH_DATASET, "train")])
+    best_params = search_shared_hyperparameters(search_X, search_Y, search_stems,
+                                                search_fingerprint, OUTPUT_DIR)
+    del search_X, search_Y, search_stems
+
     results = []
     for slug, method in DATASETS:
         # train_stems groups the rows by source document for the inner CV -- see inner_cv().
@@ -637,21 +716,6 @@ def run_benchmark(final_test_eval: bool = False, orthogonalize_country: bool = F
         if not reusable:
             print(f"  !! {slug} changed since its cached models were built — re-searching "
                   f"hyperparameters and refitting instead of reusing them.")
-
-        hp_path = OUTPUT_DIR / f"best_hyperparameters__{slug}.json"
-        if hp_path.exists() and reusable:
-            print(f"  loading cached hyperparameters from {hp_path.name} (skipping search)")
-            best_params = json.loads(hp_path.read_text())
-        else:
-            pca_dims = pca_search_dims(len(X_train), N_FEATURES)
-            print(f"  searching hyperparameters (n_train={len(X_train)}, pca_dims={pca_dims})...")
-            best_params = {}
-            for name in MODEL_NAMES:
-                print(f"    searching {name}...")
-                search = make_search(name, pca_dims)
-                search.fit(X_train, Y_train, groups=train_stems)
-                best_params[name] = {k: _sanitise(v) for k, v in search.best_params_.items()}
-            hp_path.write_text(json.dumps(best_params, indent=2))
 
         for name in MODEL_NAMES:
             pickle_path = OUTPUT_DIR / f"{model_slug(name)}__{slug}.pickle"

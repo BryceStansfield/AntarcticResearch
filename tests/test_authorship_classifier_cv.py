@@ -11,6 +11,8 @@ search still ran, still reported a winner, and the winner was chosen against a c
   occupies several rows sharing one label, so an ungrouped split puts near-duplicate text on both
   sides of the fold.
 """
+import json
+
 import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
@@ -248,3 +250,108 @@ def test_cache_is_rejected_when_the_fingerprint_differs(tmp_path):
 def test_fingerprints_are_per_dataset(tmp_path):
     cc.write_dataset_fingerprint("raw__full", "abc", tmp_path)
     assert cc.cached_artefacts_are_current("naive__full", "abc", tmp_path) is True
+
+
+# --------------------------------- one shared hyperparameter search, checkpointed per model
+
+class _StubSearch:
+    """Stands in for GridSearchCV/OptunaSearchCV: records the fit, returns fixed best params."""
+
+    def __init__(self, name, fitted):
+        self.name = name
+        self._fitted = fitted
+        self.best_params_ = {"pca__n_components": 8}
+
+    def fit(self, X, y, groups=None):
+        self._fitted.append(self.name)
+        return self
+
+
+@pytest.fixture
+def stub_search(monkeypatch):
+    """Replace the real searches; returns the list of model names actually searched."""
+    fitted = []
+    monkeypatch.setattr(cc, "make_search", lambda name, pca_dims: _StubSearch(name, fitted))
+    return fitted
+
+
+def _search_args():
+    X = np.zeros((12, 4), dtype=np.float32)
+    Y = np.zeros((12, len(cc.COUNTRIES)), dtype=int)
+    stems = [f"doc{i}" for i in range(12)]
+    return X, Y, stems
+
+
+def test_shared_search_runs_every_model_once(stub_search, tmp_path):
+    X, Y, stems = _search_args()
+    params = cc.search_shared_hyperparameters(X, Y, stems, "fp1", tmp_path)
+
+    assert stub_search == cc.MODEL_NAMES
+    assert sorted(params) == sorted(cc.MODEL_NAMES)
+
+
+def test_shared_search_checkpoints_after_every_model(stub_search, tmp_path):
+    """The expensive step. Losing a whole sweep to an interruption is what a sleeping laptop and a
+    reboot each cost in practice, so the file must be current after every model, not just at the end."""
+    seen = []
+
+    real = cc.make_search
+
+    def spy(name, pca_dims):
+        # Record what is on disk at the moment this model's search begins.
+        path = tmp_path / cc.HYPERPARAMETERS_FILENAME
+        seen.append(sorted(json.loads(path.read_text())["params"]) if path.exists() else [])
+        return real(name, pca_dims)
+
+    cc.make_search = spy
+    try:
+        X, Y, stems = _search_args()
+        cc.search_shared_hyperparameters(X, Y, stems, "fp1", tmp_path)
+    finally:
+        cc.make_search = real
+
+    # Before model 1 nothing is written; before model N the previous N-1 are all present.
+    assert seen[0] == []
+    assert len(seen[-1]) == len(cc.MODEL_NAMES) - 1
+
+
+def test_shared_search_resumes_and_skips_finished_models(stub_search, tmp_path):
+    (tmp_path / cc.HYPERPARAMETERS_FILENAME).write_text(json.dumps({
+        "search_dataset": cc.SHARED_SEARCH_DATASET,
+        "fingerprint": "fp1",
+        "params": {"Logistic Regression": {"pca__n_components": 2}},
+    }))
+
+    X, Y, stems = _search_args()
+    params = cc.search_shared_hyperparameters(X, Y, stems, "fp1", tmp_path)
+
+    assert "Logistic Regression" not in stub_search, "already searched; must not be redone"
+    assert params["Logistic Regression"] == {"pca__n_components": 2}, "checkpointed value is kept"
+    assert sorted(params) == sorted(cc.MODEL_NAMES)
+
+
+def test_a_checkpoint_from_different_data_is_discarded(stub_search, tmp_path):
+    """Resuming across a corpus change would mix parameters searched on two different datasets."""
+    (tmp_path / cc.HYPERPARAMETERS_FILENAME).write_text(json.dumps({
+        "search_dataset": cc.SHARED_SEARCH_DATASET,
+        "fingerprint": "OLD",
+        "params": {"Logistic Regression": {"pca__n_components": 2}},
+    }))
+
+    X, Y, stems = _search_args()
+    params = cc.search_shared_hyperparameters(X, Y, stems, "NEW", tmp_path)
+
+    assert stub_search == cc.MODEL_NAMES, "every model re-searched"
+    assert params["Logistic Regression"] == {"pca__n_components": 8}
+
+
+def test_load_shared_hyperparameters_round_trips(stub_search, tmp_path):
+    X, Y, stems = _search_args()
+    written = cc.search_shared_hyperparameters(X, Y, stems, "fp1", tmp_path)
+    assert cc.load_shared_hyperparameters(tmp_path) == written
+
+
+def test_the_search_dataset_is_one_of_the_benchmark_datasets():
+    """It names the arm the shared parameters are tuned on; a typo would search a dataset that has
+    no assembled plan and fail only at run time."""
+    assert cc.SHARED_SEARCH_DATASET in {slug for slug, _m in cc.DATASETS}

@@ -128,17 +128,67 @@ def test_a_direction_in_the_subspace_projects_to_nothing():
     assert np.linalg.norm(projected) == pytest.approx(0.0, abs=2e-5)
 
 
-def test_project_does_not_renormalise():
-    """Characterises current behaviour, and it is a live decision rather than settled: removing a
-    component genuinely shortens the vector, so projected embeddings are NOT unit-norm. Consumers
-    that read a dot product as a cosine (measure_wp_latency) must normalise themselves."""
-    directions = probe_style_directions()
-    projector = CountrySignalProjector(directions)
+def test_projected_vectors_are_unit_norm():
+    """Consumers read a dot product as a cosine (measure_wp_latency says so and thresholds on it),
+    so the projection has to preserve the unit-norm invariant its inputs arrive with."""
+    projector = CountrySignalProjector(probe_style_directions())
     rng = np.random.default_rng(6)
 
-    x = rng.normal(size=(1, DIM)).astype(np.float32)
-    x = x / np.linalg.norm(x)
-    assert np.linalg.norm(projector.project(x)) < 1.0
+    X = rng.normal(size=(20, DIM)).astype(np.float32)
+    X = X / np.linalg.norm(X, axis=1, keepdims=True)
+
+    norms = np.linalg.norm(projector.project(X), axis=1)
+    assert norms == pytest.approx(np.ones(20), abs=1e-5)
+
+
+def test_renormalising_does_not_change_direction():
+    """It rescales, and only rescales -- the orthogonalised direction must be untouched."""
+    directions = probe_style_directions()
+    projector = CountrySignalProjector(directions)
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(5, DIM)).astype(np.float32)
+
+    normalised = projector.project(X)
+    raw = X - (X @ projector.basis.T.astype(np.float32)) @ projector.basis.astype(np.float32)
+    raw = raw / np.linalg.norm(raw, axis=1, keepdims=True)
+    assert normalised == pytest.approx(raw, abs=1e-5)
+
+
+def test_documents_lose_different_amounts_of_length():
+    """Why normalising matters rather than being cosmetic: the length removed varies per document,
+    so without it a paper with more country signal would score systematically lower against
+    everything -- a magnitude artefact that reads as a semantic one."""
+    directions = probe_style_directions()
+    projector = CountrySignalProjector(directions)
+    rng = np.random.default_rng(8)
+    B = projector.basis.astype(np.float32)
+
+    # A random 256-d vector barely overlaps a 4-d subspace, so contrast has to be built explicitly:
+    # one vector with the subspace already removed, one that is mostly country direction.
+    generic = rng.normal(size=DIM).astype(np.float32)
+    orthogonal = generic - (generic @ B.T) @ B
+    orthogonal = orthogonal / np.linalg.norm(orthogonal)
+    loaded = (0.2 * orthogonal + directions[0]).astype(np.float32)
+
+    X = np.vstack([orthogonal, loaded])
+    X = X / np.linalg.norm(X, axis=1, keepdims=True)
+
+    unnormalised = np.linalg.norm(X - (X @ B.T) @ B, axis=1)
+    assert unnormalised[0] == pytest.approx(1.0, abs=1e-5), "keeps all its length"
+    assert unnormalised[1] < 0.3, "the loaded document keeps only its small orthogonal part"
+    # Both come back unit-norm, so nothing downstream can mistake the lost length for dissimilarity.
+    assert np.linalg.norm(projector.project(X), axis=1) == pytest.approx([1.0, 1.0], abs=1e-5)
+
+
+def test_a_row_inside_the_subspace_stays_zero_rather_than_nan():
+    """It has no direction to normalise; dividing by its zero norm would poison every downstream
+    computation with NaN instead of leaving an honest zero vector."""
+    directions = probe_style_directions()
+    projector = CountrySignalProjector(directions)
+
+    projected = projector.project(directions[:1].astype(np.float32))
+    assert np.all(np.isfinite(projected))
+    assert np.linalg.norm(projected) == pytest.approx(0.0, abs=1e-6)
 
 
 # --------------------------------------------------------------------------- loading
